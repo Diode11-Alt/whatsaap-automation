@@ -687,9 +687,12 @@ def send_whatsapp_message(chat_jid: str, content: str):
         # We don't check /api/status because it doesn't exist. 
         # If the bridge is down, requests.post will naturally throw an exception.
             
-        payload = {"chat_jid": chat_jid, "content": content}
-        requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=5)
-        print(f"[sent] -> {chat_jid}: {content!r}")
+        payload = {"recipient": chat_jid, "message": content}
+        resp = requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=5)
+        if resp.status_code == 200:
+            print(f"[sent] -> {chat_jid}: {content!r}")
+        else:
+            print(f"[send error] API returned {resp.status_code}: {resp.text}")
     except Exception as e:
         print(f"[send error] {e}")
 
