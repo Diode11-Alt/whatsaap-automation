@@ -397,18 +397,27 @@ def process_auto_routines():
                         state[r_id] = today_str
                         save_routines_state(state)
 
-# ─── DB Helpers ───────────────────────────────────────────────────────────────
+def get_latest_message_rowid() -> int:
+    if not os.path.exists(DB_PATH):
+        return 0
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(rowid) FROM messages")
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res and res[0] else 0
 
-def get_new_messages(last_timestamp: str) -> list:
+
+def get_new_messages(last_rowid: int) -> list:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, timestamp, chat_jid, sender, content, is_from_me, media_type
+        SELECT rowid, id, timestamp, chat_jid, sender, content, is_from_me, media_type
         FROM messages
-        WHERE timestamp > ?
-        ORDER BY timestamp ASC
-    """, (last_timestamp,))
+        WHERE rowid > ?
+        ORDER BY rowid ASC
+    """, (last_rowid,))
     msgs = cursor.fetchall()
     conn.close()
     return msgs
@@ -698,19 +707,10 @@ def main():
         print(f"[error] DB not found at {DB_PATH}")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT MAX(timestamp) FROM messages")
-    result = cursor.fetchone()[0]
-    conn.close()
-
-    last_timestamp = result or time.strftime('%Y-%m-%d %H:%M:%S+00:00', time.gmtime())
-    print(f"[ready] Polling after {last_timestamp} | delay {REPLY_DELAY_MIN}-{REPLY_DELAY_MAX}s")
-
-    # Cache group classifications to avoid repeated DB hits
-    group_type_cache: dict[str, str] = {}
+    # Use rowid instead of timestamp to perfectly track new messages
+    last_rowid = get_latest_message_rowid()
     replied_ids = set()
-    pending = {}
+    pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
     bot_active = True
 
     while True:
@@ -727,7 +727,7 @@ def main():
                 continue
 
             # ── 1. Ingest new messages into pending queues ──────────────────
-            new_messages = get_new_messages(last_timestamp)
+            new_messages = get_new_messages(last_rowid)
 
             # ── Check proactive auto-text routines ──────────────────────────
             if bot_active:
@@ -739,10 +739,10 @@ def main():
                 media_type = msg['media_type']
                 is_from_me = msg['is_from_me']
                 msg_id     = msg['id']
-                msg_time   = msg['timestamp']
+                msg_rowid  = msg['rowid']
 
-                if msg_time > last_timestamp:
-                    last_timestamp = msg_time
+                if msg_rowid > last_rowid:
+                    last_rowid = msg_rowid
 
                 # Check for kill switch
                 if is_from_me:
