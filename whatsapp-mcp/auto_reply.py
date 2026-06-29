@@ -424,7 +424,7 @@ def main():
     result = cursor.fetchone()[0]
     conn.close()
 
-    last_timestamp = result or time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    last_timestamp = result or time.strftime('%Y-%m-%d %H:%M:%S+00:00', time.gmtime())
     print(f"[ready] Polling after {last_timestamp} | delay {REPLY_DELAY_MIN}-{REPLY_DELAY_MAX}s")
 
     # Cache group classifications to avoid repeated DB hits
