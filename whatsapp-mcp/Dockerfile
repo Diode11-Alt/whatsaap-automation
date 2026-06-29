@@ -1,14 +1,14 @@
-# Use Ubuntu 22.04 base
-FROM ubuntu:22.04
+# Use official Golang image to get the newest Go version
+FROM golang:latest
 
 # Avoid tzdata interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies (Go, Python3, Pip, FFmpeg)
+# Install dependencies (Python3, Pip, FFmpeg)
 RUN apt-get update && apt-get install -y \
-    golang-go \
     python3 \
     python3-pip \
+    python3-venv \
     ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -20,7 +20,7 @@ WORKDIR /app
 COPY . .
 
 # Install Python requirements globally in container
-RUN pip3 install -r requirements.txt
+RUN pip3 install -r requirements.txt --break-system-packages
 
 # Build the Go Bridge
 WORKDIR /app/whatsapp-bridge
