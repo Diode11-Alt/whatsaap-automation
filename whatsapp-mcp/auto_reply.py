@@ -21,7 +21,9 @@ import os
 import base64
 import subprocess
 import re
+import json
 import random
+from datetime import datetime, timezone, timedelta
 import speech_recognition as sr
 from collections import defaultdict
 from dotenv import load_dotenv
@@ -124,21 +126,29 @@ BASE_IDENTITY = """You are replying AS Sujal Mainali (alias DIODE), a Computer S
 
 HARD RULES:
 - Never say you are an AI, bot, or automated system. EVER. Not even if directly asked.
-- Never use formal language unless context demands it.
 - Never repeat yourself or get stuck in a loop.
-- Match the exact energy and length of the incoming message.
+- Match the exact energy and length of the incoming message. If they send 2 words, reply in 2-5 words. If they send a paragraph, reply in a paragraph.
+- LANGUAGE INTELLIGENCE: Read the chat history and detect what language the other person is using. If they write in English, reply in English. If they write in Romanized Nepali/Nepanglish, reply in Nepanglish. If they mix both, mix both. ALWAYS match their language.
+- READ THE FULL CHAT HISTORY before replying. Understand the ongoing conversation topic, the mood, the relationship, and the context. Your reply must feel like a natural continuation.
+- NEVER introduce new topics out of nowhere. Stay on the current thread of conversation.
+- If someone sends just a greeting like "hi" or "oi", reply with a short greeting back, don't write an essay.
 """
 
 STYLE_PERSONAL = BASE_IDENTITY + """
-CONTEXT: This is a personal conversation with {chat_name}.
+CONTEXT: This is a personal/DM conversation with {chat_name}.
 
 CRITICAL INSTRUCTIONS FOR PERSONAL CHATS:
-1. ALWAYS read the chat history provided. Before you reply, analyze WHO {chat_name} is and what your relationship with them is.
+1. ALWAYS read the ENTIRE chat history provided. Before you reply, analyze WHO {chat_name} is based on how they talk, what topics come up, and what the relationship feels like.
 2. DO NOT use generic slang like "bhai", "yaar", or "bro" UNLESS the chat history clearly shows you both already talk like that.
 3. If {chat_name} is speaking formally or respectfully, you MUST match their respect level perfectly.
 4. If {chat_name} is a close friend being casual, then be casual back.
-5. Communicate in Romanized Nepali/Nepanglish if appropriate.
+5. LANGUAGE: Detect from the chat history. If they write in English, reply in English. If Nepanglish, reply in Nepanglish. Mirror them exactly.
 6. Keep replies short, natural, and highly contextual. NEVER sound like an AI.
+7. Analyze the SERIOUSNESS of the message:
+   - Casual greeting → short casual reply
+   - Emotional/serious topic → thoughtful, caring reply
+   - Question → direct answer
+   - Spam/forward → return exactly: SKIP
 """
 
 STYLE_CLASS = BASE_IDENTITY + """
@@ -146,10 +156,15 @@ CONTEXT: This is Sujal's college/class group at IIMS. The group or contact name 
 
 Tone: Friendly, helpful, engaged. He's a CS student who knows his stuff.
 Language: Mix of English and light Romanized Nepali. Semi-formal but not stiff.
-Style:
-- Answers technical/assignment questions clearly and confidently
-- Uses appropriate respect depending on if he is talking to a junior, senior, or peer.
-- Does NOT reply to irrelevant forwards, spam, or memes (return exactly: SKIP)
+
+GROUP REPLY INTELLIGENCE — CRITICAL:
+- ONLY reply if the message DIRECTLY involves Sujal, asks him something, mentions him, or is a question he can uniquely answer.
+- For general chatter between other people → return exactly: SKIP
+- For announcements, news, forwards, memes → return exactly: SKIP  
+- For greetings from others to each other (not to Sujal) → SKIP
+- For assignment/exam questions that anyone could answer → reply only if no one else has answered yet (check history)
+- NEVER reply to every single message. Be selective. Quality over quantity.
+- If you replied recently in this group (within last 5 messages), SKIP unless directly addressed.
 
 Be genuine and helpful. Sound like a smart, chill CS student.
 """
@@ -158,18 +173,144 @@ STYLE_COMPANY = BASE_IDENTITY + """
 CONTEXT: This is a company/work/professional group (Fortune First, NIC, or similar) or contact: {chat_name}.
 
 Tone: Professional, highly respectful, and action-oriented.
-Rules:
-- NEVER use casual slang.
-- ONLY reply if the message directly asks Sujal something, tags him, or requires his input
-- For general announcements, news, or chit-chat → return exactly: SKIP
-- For technical questions in his domain → answer clearly
-- For work tasks assigned to him → acknowledge with ETA if possible
-- Language: English primarily, respectful Nepali OK if initiated by them
 
-If the message does NOT require Sujal's response, output exactly: SKIP
+GROUP REPLY INTELLIGENCE — CRITICAL:
+- ONLY reply if the message DIRECTLY asks Sujal something, tags him, mentions his name, or requires HIS specific input.
+- For general announcements, news, or chit-chat between others → return exactly: SKIP
+- For someone saying "checked out"/"checked in" → SKIP unless it's Sujal
+- For meeting links not for Sujal → SKIP
+- For forwards, motivational quotes, good mornings → SKIP
+- NEVER use casual slang in work groups.
+- Language: English primarily, respectful Nepali OK if initiated by them
+- Be VERY selective. Reply only when absolutely necessary.
+
+If the message does NOT specifically require Sujal's response, output exactly: SKIP
 """
 
 STYLE_PUBLIC = None  # Never reply to public groups
+
+# ─── KANXO (Yashoda) — Deep Relationship Intelligence ────────────────────────
+# Built from analysis of 36,771+ chat messages
+
+STYLE_KANXO = BASE_IDENTITY + """
+CONTEXT: This is Sujal's GIRLFRIEND — Yashoda (nickname: Kanxo). They have been in a long-distance relationship for 3-5 years. Sujal is in Dubai, she is in Nepal (Saptari/Kathmandu). This is the most important person in his life.
+
+RELATIONSHIP DYNAMICS:
+- They love each other deeply but fight frequently because of distance and miscommunication
+- She gets very upset when Sujal is busy and doesn't reply or gives short boring answers
+- She craves deep emotional conversations, not just "k xa" "thik xa" type exchanges
+- She has a brother (dai) who is sometimes around so she can't always video call freely
+- Her best friend is Aayusha
+- She's a student with board exams
+- She has an iPhone and uses Snapchat for streaks
+
+PET NAMES SUJAL USES FOR HER (use these naturally):
+- "sani" (most common, default)
+- "nanu" / "nani" (when being extra caring)
+- "maya" (when expressing love)
+- "kanxoo" / "kancoo" (her actual nickname, playful)
+- "mero mutu" / "mero maya" / "mero sani" (deep emotional moments)
+
+SUJAL'S EXACT SPEAKING STYLE WITH HER:
+- "Huss" (= ok/yes, his signature word)
+- "Aw" / "Aww" (= yes/ok, casual)
+- "Eaea" / "Eaa" (= acknowledgment)
+- "Hajur" (= yes, respectful-playful)
+- "K gardai xau" (= what are you doing)
+- "Khana khiyes" (= did you eat - he asks this VERY frequently)
+- "Kasto xa aaile" (= how are you now)
+- "Cal garu" / "Vc garu" (= let's call / video call)
+- "I love you" / "I miss you" / "I miss you too sani"
+- "Good morning sani" (daily ritual)
+- "Ma kaam gardai xu" (= I'm working - use sparingly, she hates this)
+
+EMOTIONAL INTELLIGENCE RULES:
+1. If she says "Oi" or "K" → Reply warmly: "Hajur sani" or "Aw maya k xa"
+2. If she says "I miss you" → ALWAYS reply "I miss you too sani" or "I miss you too maya" with emotion
+3. If she says "Hu" / "Huh" / "Hjr" → She's being short, ask what's wrong gently: "K vayo sani"
+4. If she sounds upset/angry → Be EXTRA gentle, use "sani", "nanu", ask what happened, DON'T be defensive
+5. If she's fighting/cursing → DO NOT fight back, DO NOT match her anger. Be patient. Say "Sorry sani" or "Na risau na maya". She calms down.
+6. If she's sick → Be extremely caring: suggest food, medicine, doctor. "Kai kha na sani", "Aausadi kha", "Medical jau na nanu"
+7. If she shares something emotional → Listen, validate, comfort. "Ma xu ta sani", "Tension na li"
+8. If she asks about work → Be brief but pivot back to her: "Aw kaam gardai thye, ta k gardai xas sani?"
+9. If she sends media (photos/videos) → React warmly, comment on it
+10. NEVER give one-word answers like just "Ok" or "Huss" alone — she HATES this. Always add something warm.
+
+CRITICAL DON'Ts:
+- NEVER be cold, formal, or robotic
+- NEVER say "busy xu" repeatedly — she will explode
+- NEVER ignore her emotional messages
+- NEVER use "bhai", "bro", "yaar" with her — she's your girlfriend
+- NEVER be dismissive about her feelings even if they seem irrational
+- NEVER mention other girls
+
+LANGUAGE: Pure Romanized Nepali (Nepanglish). Very casual, warm, loving. Short messages like real WhatsApp chat.
+
+IMPORTANT: Read the chat history carefully to understand her CURRENT MOOD before replying. If she's happy, be playful. If she's upset, be gentle. If she's fighting, be patient and loving.
+"""
+
+# ─── VAULT (All Data Group) ──────────────────────────────────────────────────
+
+STYLE_VAULT = BASE_IDENTITY + """
+CONTEXT: This is Sujal's private "All data" vault group ({chat_name}). 
+Sujal uses this group to save important links, API keys, documents, code snippets, and notes.
+
+CRITICAL INSTRUCTIONS FOR VAULT:
+1. You act as an intelligent assistant managing this vault.
+2. If Sujal forwards something here or saves a link, acknowledge it briefly (e.g. "Saved.", "Got it.").
+3. If Sujal asks a question about previously saved data (e.g., "What was the API key I sent yesterday?", "Summarize the document I sent"), read the chat history carefully and provide the exact requested information.
+4. If Sujal gives an instruction to process data (e.g. "extract email from this"), do it immediately.
+5. Be highly accurate, concise, and professional. No slang needed here, just efficiency.
+"""
+
+# ─── Contact Memory System ────────────────────────────────────────────────────
+
+def load_contact_memory():
+    """Load per-contact personality profiles from contact_memory.json"""
+    memory_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contact_memory.json')
+    try:
+        with open(memory_path, 'r') as f:
+            data = json.load(f)
+            return data.get('contacts', {})
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[memory] Could not load contact_memory.json: {e}")
+        return {}
+
+CONTACT_MEMORY = load_contact_memory()
+print(f"[memory] Loaded {len(CONTACT_MEMORY)} contact profiles: {list(CONTACT_MEMORY.keys())}")
+
+# Map of known contact nicknames to their special prompt
+CONTACT_PROMPT_MAP = {
+    "kanxo": STYLE_KANXO,
+    "all_data": STYLE_VAULT,
+}
+
+def get_contact_prompt(chat_name: str, chat_jid: str) -> str | None:
+    """Check if this contact has a special personality profile."""
+    name_lower = (chat_name or "").lower().strip()
+    for contact_key, profile in CONTACT_MEMORY.items():
+        match_names = profile.get('match_names', [])
+        # Check by JID first (100% precision) or fallback to name matching
+        is_match = False
+        if profile.get('jid') == chat_jid:
+            is_match = True
+        elif any(mn.lower() in name_lower for mn in match_names):
+            is_match = True
+            
+        if is_match:
+            prompt = CONTACT_PROMPT_MAP.get(contact_key)
+            if prompt:
+                # Dynamically inject Sujal's persona if defined
+                sujal_persona = profile.get('sujal_persona')
+                if sujal_persona:
+                    persona_text = "\n\nSUJAL'S EXACT PERSONA (MIRROR THIS PERFECTLY):\n"
+                    for key, value in sujal_persona.items():
+                        persona_text += f"- {key.replace('_', ' ').title()}: {value}\n"
+                    prompt += persona_text
+                    
+                print(f"[memory] ★ Matched contact profile: {contact_key} for {chat_name!r}")
+                return prompt
+    return None
 
 TYPE_TO_PROMPT = {
     "PERSONAL": STYLE_PERSONAL,
@@ -177,6 +318,82 @@ TYPE_TO_PROMPT = {
     "COMPANY":  STYLE_COMPANY,
     "PUBLIC":   STYLE_PUBLIC,
 }
+
+# ─── Proactive Auto-Texting Routine Engine ────────────────────────────────────
+
+NPT_TZ = timezone(timedelta(hours=5, minutes=45))
+ROUTINES_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'routines_state.json')
+
+def load_routines_state():
+    try:
+        with open(ROUTINES_STATE_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_routines_state(state):
+    with open(ROUTINES_STATE_FILE, 'w') as f:
+        json.dump(state, f)
+
+def get_last_message_time(chat_jid: str) -> datetime:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(timestamp) FROM messages WHERE chat_jid = ?", (chat_jid,))
+    res = cursor.fetchone()[0]
+    conn.close()
+    if not res:
+        return datetime.now(NPT_TZ) - timedelta(days=1)
+    
+    try:
+        dt = datetime.fromisoformat(res.replace(' ', 'T'))
+        return dt.astimezone(NPT_TZ)
+    except:
+        return datetime.now(NPT_TZ) - timedelta(days=1)
+
+def process_auto_routines():
+    state = load_routines_state()
+    now = datetime.now(NPT_TZ)
+    current_time_str = now.strftime("%H:%M")
+    today_str = now.strftime("%Y-%m-%d")
+
+    for contact_key, profile in CONTACT_MEMORY.items():
+        routines = profile.get("routines", [])
+        chat_jid = profile.get("jid")
+        if not routines or not chat_jid:
+            continue
+            
+        contact_name = profile.get("nickname", contact_key)
+        last_msg_time = get_last_message_time(chat_jid)
+        hours_since_last_msg = (now - last_msg_time).total_seconds() / 3600
+
+        for r in routines:
+            r_id = f"{contact_key}_{r['id']}"
+            start_t, end_t = r["time_window"]
+            
+            if start_t <= current_time_str <= end_t:
+                if state.get(r_id) != today_str:
+                    
+                    # Prevent auto-texting if we are already actively chatting
+                    if hours_since_last_msg < 2:
+                        continue 
+                    
+                    print(f"[routine] Firing {r_id} for {chat_jid}")
+                    
+                    system_prompt = CONTACT_PROMPT_MAP.get(contact_key)
+                    if not system_prompt:
+                        continue
+                        
+                    # Inject routine prompt
+                    routine_instruction = f"\n\n[SYSTEM ROUTINE TRIGGER]: {r['prompt']}\nGenerate a short, natural message based on this routine."
+                    full_prompt = system_prompt.replace("{chat_name}", contact_name) + routine_instruction
+                    
+                    chat_history = get_chat_history(chat_jid, limit=15)
+                    reply = get_ai_reply(full_prompt, chat_history, "[SYSTEM: Execute routine]")
+                    
+                    if reply and should_send(reply, "PERSONAL", chat_jid):
+                        send_whatsapp_message(chat_jid, reply.strip())
+                        state[r_id] = today_str
+                        save_routines_state(state)
 
 # ─── DB Helpers ───────────────────────────────────────────────────────────────
 
@@ -195,12 +412,13 @@ def get_new_messages(last_timestamp: str) -> list:
     return msgs
 
 
-def get_chat_history(chat_jid: str, limit: int = 150) -> list[dict]:
+def get_chat_history(chat_jid: str, limit: int = 400) -> list[dict]:
+    """Fetch chat history with sender names for contextual intelligence."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT content, is_from_me, media_type
+        SELECT content, is_from_me, media_type, sender
         FROM messages
         WHERE chat_jid = ? AND (content IS NOT NULL AND content != '' OR media_type IS NOT NULL)
         ORDER BY timestamp DESC
@@ -209,7 +427,13 @@ def get_chat_history(chat_jid: str, limit: int = 150) -> list[dict]:
     rows = cursor.fetchall()
     conn.close()
 
+    # Check if this is a group chat
+    is_group = '@g.us' in chat_jid
+
     history = []
+    total_chars = 0
+    MAX_CHARS = 12000  # Stay well within token limits
+
     for msg in rows:
         role = "assistant" if msg['is_from_me'] else "user"
         content = msg['content'] or ""
@@ -217,6 +441,18 @@ def get_chat_history(chat_jid: str, limit: int = 150) -> list[dict]:
             content = f"[Sent a {msg['media_type']}]"
         elif msg['media_type'] and content:
             content = f"[{msg['media_type']} with caption]: {content}"
+
+        # In group chats, prefix sender name so AI knows WHO said what
+        if is_group and not msg['is_from_me'] and msg['sender']:
+            sender_id = msg['sender']
+            # Extract readable part of sender ID
+            sender_short = sender_id.split('@')[0] if '@' in sender_id else sender_id
+            content = f"[{sender_short}]: {content}"
+
+        total_chars += len(content)
+        if total_chars > MAX_CHARS:
+            break  # Stop before hitting token limits
+
         history.append({"role": role, "content": content})
     return history[::-1]  # chronological
 
@@ -318,11 +554,17 @@ API_KEYS = {
     "openrouter": [k for k in [
         os.environ.get("OPENROUTER_API_KEY_1"),
         os.environ.get("OPENROUTER_API_KEY_2"),
-        os.environ.get("OPENROUTER_API_KEY_3")
+        os.environ.get("OPENROUTER_API_KEY_3"),
+        os.environ.get("OPENROUTER_API_KEY_4"),
+        os.environ.get("OPENROUTER_API_KEY_5"),
+        os.environ.get("OPENROUTER_API_KEY_6")
     ] if k]
 }
 
 MODELS = [
+    ("gemini", "gemini-2.5-flash"),
+    ("gemini", "gemini-2.0-flash-exp"),
+    ("gemini", "gemini-1.5-flash"),
     ("openrouter", "openai/gpt-4o-mini"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("openrouter", "openai/gpt-4o"),
@@ -330,9 +572,7 @@ MODELS = [
     ("openrouter", "openrouter/free"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
     ("openrouter", "nousresearch/hermes-3-llama-3.1-405b:free"),
-    ("openrouter", "openrouter/auto"),
-    ("gemini", "gemini-2.5-flash"),
-    ("gemini", "gemini-1.5-flash")
+    ("openrouter", "openrouter/auto")
 ]
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
@@ -382,17 +622,32 @@ def get_ai_reply(system_prompt: str, chat_history: list[dict],
     return None
 
 
-def should_send(reply_text: str | None, group_type: str) -> bool:
-    """Filter out SKIP signals and empty replies."""
+# Track last reply time per group to enforce cooldowns
+_group_last_reply: dict[str, float] = {}
+GROUP_COOLDOWN_SECONDS = 120  # Don't reply more than once every 2 min in groups
+
+def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> bool:
+    """Filter out SKIP signals, empty replies, and enforce group cooldowns."""
     if not reply_text:
         return False
-    if reply_text.strip().upper() == "SKIP":
+    stripped = reply_text.strip()
+    if stripped.upper() == "SKIP":
         return False
-    if len(reply_text.strip()) < 1:
+    if len(stripped) < 1:
         return False
-    if has_repetition(reply_text.strip()):
-        print(f"[repetition detected] skipping: {reply_text.strip()[:80]}...")
+    if has_repetition(stripped):
+        print(f"[repetition detected] skipping: {stripped[:80]}...")
         return False
+    
+    # Group cooldown: don't spam groups
+    if '@g.us' in chat_jid and group_type in ('CLASS', 'COMPANY'):
+        now = time.time()
+        last = _group_last_reply.get(chat_jid, 0)
+        if now - last < GROUP_COOLDOWN_SECONDS:
+            print(f"[cooldown] Skipping group reply, last reply was {now - last:.0f}s ago (cooldown={GROUP_COOLDOWN_SECONDS}s)")
+            return False
+        _group_last_reply[chat_jid] = now
+    
     return True
 
 
@@ -437,6 +692,10 @@ def main():
         try:
             # ── 1. Ingest new messages into pending queues ──────────────────
             new_messages = get_new_messages(last_timestamp)
+
+            # ── Check proactive auto-text routines ──────────────────────────
+            if bot_active:
+                process_auto_routines()
 
             for msg in new_messages:
                 chat_jid   = msg['chat_jid']
@@ -485,7 +744,12 @@ def main():
                     replied_ids.add(msg_id)
                     continue
 
-                raw_prompt = TYPE_TO_PROMPT.get(group_type, STYLE_COMPANY)
+                # ── Check for contact-specific memory first ─────────────
+                contact_prompt = get_contact_prompt(chat_name, chat_jid)
+                if contact_prompt:
+                    raw_prompt = contact_prompt
+                else:
+                    raw_prompt = TYPE_TO_PROMPT.get(group_type, STYLE_COMPANY)
                 if not raw_prompt:
                     replied_ids.add(msg_id)
                     continue
@@ -572,7 +836,7 @@ def main():
                 reply = get_ai_reply(system_prompt, chat_history, final_payload)
                 print(f"[AI reply raw] {str(reply)[:100]}")
 
-                if should_send(reply, group_type):
+                if should_send(reply, group_type, chat_jid):
                     send_whatsapp_message(chat_jid, reply.strip())
                 else:
                     print(f"[skip reply] group={group_type} | reply={reply!r}")
