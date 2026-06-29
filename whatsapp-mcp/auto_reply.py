@@ -36,6 +36,7 @@ DB_PATH = os.path.join(
 )
 WHATSAPP_API_URL = "http://localhost:8080/api/send"
 DOWNLOAD_API_URL = "http://localhost:8080/api/download"
+BRIDGE_URL = "http://localhost:8080"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 # ─── Group Classification ────────────────────────────────────────────────────
@@ -716,8 +717,11 @@ def main():
             # ── Check bridge ready ──────────────────────────────────────────
             try:
                 requests.get(BRIDGE_URL, timeout=2)
-            except Exception:
+            except Exception as e:
                 # Bridge not up yet
+                if not getattr(time, '_printed_bridge_wait', False):
+                    print(f"[DEBUG] Waiting for bridge... (Error: {e})", flush=True)
+                    time._printed_bridge_wait = True
                 time.sleep(2)
                 continue
             
