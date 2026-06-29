@@ -543,7 +543,6 @@ def process_media(file_path: str, media_type: str) -> list | None:
 # ─── AI Reply ─────────────────────────────────────────────────────────────────
 
 API_URLS = {
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions"
 }
 
@@ -562,8 +561,6 @@ API_KEYS = {
 }
 
 MODELS = [
-    ("gemini", "gemini-2.5-flash"),
-    ("gemini", "gemini-2.0-flash-exp"),
     ("gemini", "gemini-1.5-flash"),
     ("openrouter", "openai/gpt-4o-mini"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
@@ -578,45 +575,67 @@ MODELS = [
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
                  new_message_payload) -> str | None:
     
-    messages = [{"role": "system", "content": system_prompt}] + chat_history
-    messages.append({"role": "user", "content": new_message_payload})
-
     for provider, model in MODELS:
-        api_url = API_URLS[provider]
-        keys_to_try = API_KEYS[provider]
+        keys_to_try = API_KEYS.get(provider, [])
         
         for api_key in keys_to_try:
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
             try:
-                resp = requests.post(
-                    api_url,
-                    headers=headers,
-                    json={"model": model, "messages": messages, "max_tokens": 500},
-                    timeout=20,
-                )
-                if resp.status_code in [429, 402, 403]:
-                    # 429 = Rate limited, 402 = Payment required, 403 = Forbidden (e.g. invalid key)
-                    print(f"[fallback] {provider} Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
-                    time.sleep(1)
-                    continue
-                
-                if resp.status_code != 200:
-                    print(f"[API Error] {model} with key {api_key[:12]}... HTTP {resp.status_code}: {resp.text}")
-                    if resp.status_code in [404, 400]:
-                        break # Try next model
-                    continue
-                
-                resp.raise_for_status()
-                result = resp.json()
-                if result.get('choices'):
-                    return result['choices'][0]['message']['content']
+                if provider == "gemini":
+                    # Native Gemini Format
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    headers = {"Content-Type": "application/json"}
+                    
+                    contents = []
+                    for msg in chat_history:
+                        role = "model" if msg["role"] == "assistant" else "user"
+                        contents.append({"role": role, "parts": [{"text": str(msg["content"])}]})
+                    
+                    # Append new user message
+                    contents.append({"role": "user", "parts": [{"text": str(new_message_payload)}]})
+                    
+                    payload = {
+                        "contents": contents,
+                        "systemInstruction": {"parts": [{"text": system_prompt}]},
+                        "generationConfig": {"maxOutputTokens": 500}
+                    }
+                    
+                    resp = requests.post(api_url, headers=headers, json=payload, timeout=20)
+                    
+                    if resp.status_code in [429, 402, 403, 404]:
+                        print(f"[fallback] gemini Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
+                        continue
+                        
+                    resp.raise_for_status()
+                    data = resp.json()
+                    
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    
+                else:
+                    # OpenRouter Format
+                    messages = [{"role": "system", "content": system_prompt}] + chat_history
+                    messages.append({"role": "user", "content": new_message_payload})
+                    api_url = API_URLS[provider]
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    }
+                    resp = requests.post(
+                        api_url,
+                        headers=headers,
+                        json={"model": model, "messages": messages, "max_tokens": 500},
+                        timeout=20,
+                    )
+                    if resp.status_code in [429, 402, 403, 404]:
+                        print(f"[fallback] {provider} Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
+                        continue
+
+                    resp.raise_for_status()
+                    return resp.json()["choices"][0]["message"]["content"].strip()
+
             except Exception as e:
-                print(f"[AI error] {model} with key {api_key[:12]}: {e}")
-                time.sleep(1)
-                
+                print(f"[API Error] {model} with key {api_key[:12]}... HTTP {getattr(e.response, 'status_code', '')}: {getattr(e.response, 'text', str(e))}")
+                continue # Try next key
+        
         print(f"[model fallback] Exhausted all {provider} keys for {model}. Trying next model...")
     
     return None
@@ -653,13 +672,17 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
 
 # ─── WhatsApp Send ────────────────────────────────────────────────────────────
 
-def send_whatsapp_message(recipient_jid: str, content: str) -> None:
+def send_whatsapp_message(chat_jid: str, content: str):
     try:
-        resp = requests.post(WHATSAPP_API_URL,
-                              json={"recipient": recipient_jid, "message": content},
-                              timeout=10)
-        resp.raise_for_status()
-        print(f"[sent] → {recipient_jid}")
+        # Check if bridge is ready
+        resp = requests.get(f"{BRIDGE_URL}/api/status", timeout=2)
+        if resp.status_code != 200:
+            print("[send error] Bridge is not ready.")
+            return
+            
+        payload = {"chat_jid": chat_jid, "content": content}
+        requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=5)
+        print(f"[sent] -> {chat_jid}: {content!r}")
     except Exception as e:
         print(f"[send error] {e}")
 
@@ -690,6 +713,17 @@ def main():
 
     while True:
         try:
+            # ── Check bridge ready ──────────────────────────────────────────
+            try:
+                status_resp = requests.get(f"{BRIDGE_URL}/api/status", timeout=2)
+                if status_resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+            except Exception:
+                # Bridge not up yet
+                time.sleep(2)
+                continue
+
             # ── 1. Ingest new messages into pending queues ──────────────────
             new_messages = get_new_messages(last_timestamp)
 
