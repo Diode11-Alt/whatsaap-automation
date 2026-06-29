@@ -684,11 +684,8 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
 
 def send_whatsapp_message(chat_jid: str, content: str):
     try:
-        # Check if bridge is ready
-        resp = requests.get(f"{BRIDGE_URL}/api/status", timeout=2)
-        if resp.status_code != 200:
-            print("[send error] Bridge is not ready.")
-            return
+        # We don't check /api/status because it doesn't exist. 
+        # If the bridge is down, requests.post will naturally throw an exception.
             
         payload = {"chat_jid": chat_jid, "content": content}
         requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=5)
