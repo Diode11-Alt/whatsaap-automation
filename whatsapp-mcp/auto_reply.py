@@ -717,10 +717,7 @@ def main():
         try:
             # ── Check bridge ready ──────────────────────────────────────────
             try:
-                status_resp = requests.get(f"{BRIDGE_URL}/api/status", timeout=2)
-                if status_resp.status_code != 200:
-                    time.sleep(2)
-                    continue
+                requests.get(BRIDGE_URL, timeout=2)
             except Exception:
                 # Bridge not up yet
                 time.sleep(2)
