@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS Files
+.DS_Store
+
+# Go
+whatsapp-bridge/store/
+whatsapp-bridge/messages.db
+whatsapp-bridge/whatsapp-bridge
+
+# User specific chat histories
+_chat*.txt
