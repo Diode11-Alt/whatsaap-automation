@@ -707,7 +707,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		var msgs []map[string]interface{}
 		for rows.Next() {
 			var rowid int
-			var id, chatJID, sender, content, mediaType string
+			var id, chatJID, sender string
 			var timestamp time.Time
 			var isFromMe bool
 			
@@ -765,7 +765,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 		var msgs []map[string]interface{}
 		for rows.Next() {
-			var id, sender, content, mediaType string
+			var id, sender string
 			var timestamp time.Time
 			var isFromMe bool
 			
