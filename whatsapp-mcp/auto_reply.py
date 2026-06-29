@@ -726,6 +726,8 @@ def main():
 
             # ── 1. Ingest new messages into pending queues ──────────────────
             new_messages = get_new_messages(last_rowid)
+            if new_messages:
+                print(f"[DEBUG] get_new_messages returned {len(new_messages)} rows. last_rowid was {last_rowid}", flush=True)
 
             # ── Check proactive auto-text routines ──────────────────────────
             if bot_active:
@@ -881,7 +883,9 @@ def main():
             time.sleep(0.5)
 
         except Exception as e:
-            print(f"[loop error] {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"[loop error] {e}", flush=True)
             time.sleep(1)
 
 
