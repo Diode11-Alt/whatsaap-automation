@@ -398,14 +398,14 @@ def process_auto_routines():
                         save_routines_state(state)
 
 def get_latest_message_rowid() -> int:
-    if not os.path.exists(DB_PATH):
+    try:
+        r = requests.get(f"{BRIDGE_URL}/api/latest_rowid", timeout=5)
+        if r.status_code == 200:
+            return r.json().get('last_rowid', 0)
         return 0
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT MAX(rowid) FROM messages")
-    res = cursor.fetchone()
-    conn.close()
-    return res[0] if res and res[0] else 0
+    except Exception as e:
+        print(f"[DEBUG] Exception in get_latest_message_rowid: {e}", flush=True)
+        return 0
 
 
 def get_new_messages(last_rowid: int) -> list:
@@ -705,8 +705,7 @@ def main():
         print(f"[error] DB not found at {DB_PATH}")
         return
 
-    # Use rowid instead of timestamp to perfectly track new messages
-    last_rowid = get_latest_message_rowid()
+    last_rowid = None
     replied_ids = set()
     group_type_cache = {}
     pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
@@ -721,6 +720,11 @@ def main():
                 # Bridge not up yet
                 time.sleep(2)
                 continue
+            
+            # Initialize last_rowid exactly once after bridge is up
+            if last_rowid is None:
+                last_rowid = get_latest_message_rowid()
+                print(f"[DEBUG] Started bot. Initial last_rowid = {last_rowid}", flush=True)
 
             # ── 1. Ingest new messages into pending queues ──────────────────
             new_messages = get_new_messages(last_rowid)

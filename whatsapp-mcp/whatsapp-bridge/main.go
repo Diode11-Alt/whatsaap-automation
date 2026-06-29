@@ -672,6 +672,18 @@ func extractDirectPathFromURL(url string) string {
 
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
+	// Handler to get the latest rowid
+	http.HandleFunc("/api/latest_rowid", func(w http.ResponseWriter, r *http.Request) {
+		var maxRowID int
+		err := messageStore.db.QueryRow("SELECT MAX(rowid) FROM messages").Scan(&maxRowID)
+		if err != nil {
+			// If table is empty or error, return 0
+			maxRowID = 0
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"last_rowid": maxRowID})
+	})
+
 	// Handler for fetching new messages
 	http.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
 		lastRowID := r.URL.Query().Get("last_rowid")
@@ -684,6 +696,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			FROM messages
 			WHERE rowid > ?
 			ORDER BY rowid ASC
+			LIMIT 150
 		`, lastRowID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
