@@ -409,18 +409,16 @@ def get_latest_message_rowid() -> int:
 
 
 def get_new_messages(last_rowid: int) -> list:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT rowid, id, timestamp, chat_jid, sender, content, is_from_me, media_type
-        FROM messages
-        WHERE rowid > ?
-        ORDER BY rowid ASC
-    """, (last_rowid,))
-    msgs = cursor.fetchall()
-    conn.close()
-    return msgs
+    try:
+        r = requests.get(f"{BRIDGE_URL}/api/messages?last_rowid={last_rowid}", timeout=5)
+        if r.status_code == 200:
+            msgs = r.json()
+            if not msgs:
+                return []
+            return msgs
+        return []
+    except Exception:
+        return []
 
 
 def get_chat_history(chat_jid: str, limit: int = 400) -> list[dict]:

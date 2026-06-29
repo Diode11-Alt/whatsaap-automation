@@ -672,6 +672,121 @@ func extractDirectPathFromURL(url string) string {
 
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
+	// Handler for fetching new messages
+	http.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
+		lastRowID := r.URL.Query().Get("last_rowid")
+		if lastRowID == "" {
+			lastRowID = "0"
+		}
+		
+		rows, err := messageStore.db.Query(`
+			SELECT rowid, id, timestamp, chat_jid, sender, content, is_from_me, media_type
+			FROM messages
+			WHERE rowid > ?
+			ORDER BY rowid ASC
+		`, lastRowID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var msgs []map[string]interface{}
+		for rows.Next() {
+			var rowid int
+			var id, chatJID, sender, content, mediaType string
+			var timestamp time.Time
+			var isFromMe bool
+			
+			// We have to use pointers to handle NULL values
+			var mediaTypePtr *string
+			var contentPtr *string
+
+			if err := rows.Scan(&rowid, &id, &timestamp, &chatJID, &sender, &contentPtr, &isFromMe, &mediaTypePtr); err != nil {
+				continue
+			}
+			
+			msg := map[string]interface{}{
+				"rowid": rowid,
+				"id": id,
+				"timestamp": timestamp.Format(time.RFC3339),
+				"chat_jid": chatJID,
+				"sender": sender,
+				"content": "",
+				"is_from_me": isFromMe,
+				"media_type": "",
+			}
+			if contentPtr != nil {
+				msg["content"] = *contentPtr
+			}
+			if mediaTypePtr != nil {
+				msg["media_type"] = *mediaTypePtr
+			}
+			msgs = append(msgs, msg)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(msgs)
+	})
+
+	// Handler for fetching chat history
+	http.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
+		chatJID := r.URL.Query().Get("chat_jid")
+		limit := r.URL.Query().Get("limit")
+		if limit == "" {
+			limit = "150"
+		}
+		
+		rows, err := messageStore.db.Query(`
+			SELECT id, sender, content, is_from_me, timestamp, media_type
+			FROM messages
+			WHERE chat_jid = ?
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`, chatJID, limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var msgs []map[string]interface{}
+		for rows.Next() {
+			var id, sender, content, mediaType string
+			var timestamp time.Time
+			var isFromMe bool
+			
+			var mediaTypePtr *string
+			var contentPtr *string
+
+			if err := rows.Scan(&id, &sender, &contentPtr, &isFromMe, &timestamp, &mediaTypePtr); err != nil {
+				continue
+			}
+			
+			msg := map[string]interface{}{
+				"id": id,
+				"sender": sender,
+				"is_from_me": isFromMe,
+				"timestamp": timestamp.Format(time.RFC3339),
+			}
+			if contentPtr != nil {
+				msg["content"] = *contentPtr
+			}
+			if mediaTypePtr != nil {
+				msg["media_type"] = *mediaTypePtr
+			}
+			msgs = append(msgs, msg)
+		}
+
+		// Reverse msgs so oldest is first
+		for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+			msgs[i], msgs[j] = msgs[j], msgs[i]
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(msgs)
+	})
+
 	// Handler for sending messages
 	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
