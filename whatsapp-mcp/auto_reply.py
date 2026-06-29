@@ -710,6 +710,7 @@ def main():
     # Use rowid instead of timestamp to perfectly track new messages
     last_rowid = get_latest_message_rowid()
     replied_ids = set()
+    group_type_cache = {}
     pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
     bot_active = True
 
