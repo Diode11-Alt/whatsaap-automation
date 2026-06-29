@@ -323,16 +323,16 @@ API_KEYS = {
 }
 
 MODELS = [
-    ("gemini", "gemini-2.5-flash"),
     ("openrouter", "openai/gpt-4o-mini"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
-    ("gemini", "gemini-1.5-flash"),
     ("openrouter", "openai/gpt-4o"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct"),
     ("openrouter", "openrouter/free"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
     ("openrouter", "nousresearch/hermes-3-llama-3.1-405b:free"),
-    ("openrouter", "openrouter/auto")
+    ("openrouter", "openrouter/auto"),
+    ("gemini", "gemini-2.5-flash"),
+    ("gemini", "gemini-1.5-flash")
 ]
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
