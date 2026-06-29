@@ -1,41 +1,160 @@
+"""
+auto_reply.py — DIODE's Upgraded WhatsApp Auto-Reply Bot
+---------------------------------------------------------
+Improvements over v1:
+  1. Group-type classifier: PUBLIC / COMPANY / CLASS / PERSONAL
+  2. Smart reply gating:
+       - PUBLIC  → skip (no reply)
+       - COMPANY → reply only if message requires action/response
+       - CLASS   → reply fully in Sujal's natural style
+       - PERSONAL→ reply fully, warm & personal tone
+  3. Per-group style + tone system prompt injection
+  4. Context window: last 150 msgs fetched & passed
+  5. Multimodal: images, video frames, audio transcription (unchanged)
+  6. Model fallback chain (unchanged, kept robust)
+"""
+
 import sqlite3
 import time
 import requests
 import os
 import base64
 import subprocess
+import re
 import speech_recognition as sr
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'whatsapp-bridge', 'store', 'messages.db')
+DB_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'whatsapp-bridge', 'store', 'messages.db'
+)
 WHATSAPP_API_URL = "http://localhost:8080/api/send"
 DOWNLOAD_API_URL = "http://localhost:8080/api/download"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-PROMPT = """You are a proxy representing the user of this WhatsApp account.
-CRITICAL INSTRUCTIONS:
-1. Do not use generic or scripted responses. Use your intelligence to dynamically analyze the provided chat history.
-2. Carefully observe the exact language, dialect, spelling habits (e.g. Romanized Nepali/English mix), slang, abbreviations, and emotional tone used by the 'assistant' (the account owner) in the past messages.
-3. Perfectly adopt this dynamic persona. Respond exactly how the account owner would naturally respond based on the established context and tone.
-4. Keep replies sensible, highly contextual, and directly address the  message. NEVER sound like an AI. Do not break character."""
+# ─── Group Classification ────────────────────────────────────────────────────
 
-def get_new_messages(last_timestamp):
+# JIDs or partial name patterns → group type
+# Edit these to match your actual group JIDs / names from list_chats tool
+GROUP_CONFIG = {
+    # "120363XXXXXXXXXX@g.us": "CLASS",   # Add real JID here
+    # "120363YYYYYYYYYY@g.us": "COMPANY",
+    # "120363ZZZZZZZZZZ@g.us": "PUBLIC",
+}
+
+# Keyword patterns for auto-classification when JID not in config
+CLASS_KEYWORDS   = ["class", "college", "iims", "assignment", "semester",
+                     "exam", "project", "lecture", "sir", "teacher", "lab",
+                     "submission", "result", "student"]
+COMPANY_KEYWORDS = ["fortune", "primepath", "rohan", "manager", "client",
+                     "hr", "recruitment", "candidate", "office", "meeting",
+                     "nic", "innovation", "internship", "work", "salary"]
+PUBLIC_KEYWORDS  = ["dnig", "nig", "meetup", "community", "members",
+                     "announcement", "event", "blood donation", "campaign"]
+
+def classify_group(chat_jid: str, chat_name: str, recent_msgs: list[str]) -> str:
+    """Return: PUBLIC | COMPANY | CLASS | PERSONAL | DM"""
+    # Direct message (not a group)
+    if "@g.us" not in chat_jid:
+        return "PERSONAL"
+
+    # Explicit config override
+    if chat_jid in GROUP_CONFIG:
+        return GROUP_CONFIG[chat_jid]
+
+    # Name-based heuristic
+    name_lower = (chat_name or "").lower()
+    combined = name_lower + " " + " ".join(recent_msgs[-20:]).lower()
+
+    if any(k in combined for k in CLASS_KEYWORDS):
+        return "CLASS"
+    if any(k in combined for k in COMPANY_KEYWORDS):
+        return "COMPANY"
+    if any(k in combined for k in PUBLIC_KEYWORDS):
+        return "PUBLIC"
+
+    # Default unknown groups → PUBLIC (safe: no auto-reply)
+    return "PUBLIC"
+
+
+# ─── Per-type System Prompts ─────────────────────────────────────────────────
+
+BASE_IDENTITY = """You are auto-replying as Sujal Mainali (alias DIODE), a Computer Science student at IIMS College in Kathmandu, Nepal. He also works at Fortune First (HR consultancy) and interns at NIC Nepal. He is a builder — 10+ shipped projects, full-stack + IoT.
+
+CRITICAL: Never sound like an AI. No generic responses. No "As an AI..." or formal disclaimers.
+"""
+
+STYLE_PERSONAL = BASE_IDENTITY + """
+CONTEXT: This is a personal/intimate conversation.
+
+CRITICAL INSTRUCTIONS FOR PERSONAL CHATS:
+1. You MUST communicate STRICTLY in "Nepanglish" (Romanized Nepali mixed with casual English). Use terms like: "K gardai ho?", "Khana khayes?", "Huss", "xa", "garya", "k vayo".
+2. DO NOT use "sani", "maya", or romantic terms blindly! Analyze the chat history to perfectly match the emotional tone and determine the relationship. If it's a normal friend, use "yaar", "bro", or just talk normally without pet names.
+3. Keep replies short and instant. NEVER sound like an AI. Do not break character.
+"""
+
+STYLE_CLASS = BASE_IDENTITY + """
+CONTEXT: This is Sujal's college/class group at IIMS.
+
+Tone: Friendly, helpful, engaged. He's a CS student who knows his stuff.
+Language: Mix of English and light Romanized Nepali. Semi-formal but not stiff.
+Style:
+- Answers technical/assignment questions clearly and confidently
+- If someone needs help: actually help them, share knowledge
+- Can crack a light joke if the vibe allows
+- Responds to greetings warmly but briefly
+- For announcements: acknowledge if relevant to him
+- Uses "bro/dai/didi" casually for classmates
+- Might say things like "ayo, let's figure it out", "yo ta easy xa", "last date kati ho?"
+- Does NOT reply to irrelevant forwards, spam, or memes (return empty string)
+
+Be genuine and helpful. Sound like a smart, chill CS student.
+"""
+
+STYLE_COMPANY = BASE_IDENTITY + """
+CONTEXT: This is a company/work/professional group (Fortune First, NIC, or similar).
+
+Tone: Professional but not robotic. Concise and action-oriented.
+Rules:
+- ONLY reply if the message directly asks Sujal something, tags him, or requires his input
+- For general announcements, news, or chit-chat → return exactly: SKIP
+- For technical questions in his domain (web dev, AI, automation, IoT) → answer clearly
+- For work tasks assigned to him → acknowledge with ETA if possible
+- Sign off: "Regards, Sujal" or just name if casual
+- Language: English primarily, occasional Nepali OK
+
+If the message does NOT require Sujal's response, output exactly: SKIP
+"""
+
+STYLE_PUBLIC = None  # Never reply to public groups
+
+TYPE_TO_PROMPT = {
+    "PERSONAL": STYLE_PERSONAL,
+    "CLASS":    STYLE_CLASS,
+    "COMPANY":  STYLE_COMPANY,
+    "PUBLIC":   STYLE_PUBLIC,
+}
+
+# ─── DB Helpers ───────────────────────────────────────────────────────────────
+
+def get_new_messages(last_timestamp: str) -> list:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, timestamp, chat_jid, sender, content, is_from_me, media_type
         FROM messages
-        WHERE is_from_me = 0 AND timestamp > ?
+        WHERE timestamp > ?
         ORDER BY timestamp ASC
     """, (last_timestamp,))
-    messages = cursor.fetchall()
+    msgs = cursor.fetchall()
     conn.close()
-    return messages
+    return msgs
 
-def get_chat_history(chat_jid, limit=150):
+
+def get_chat_history(chat_jid: str, limit: int = 150) -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -46,184 +165,319 @@ def get_chat_history(chat_jid, limit=150):
         ORDER BY timestamp DESC
         LIMIT ?
     """, (chat_jid, limit))
-    messages = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    
+
     history = []
-    for msg in messages:
+    for msg in rows:
         role = "assistant" if msg['is_from_me'] else "user"
-        content = msg['content']
-        if msg['media_type'] and (not content or content == ''):
+        content = msg['content'] or ""
+        if msg['media_type'] and not content:
             content = f"[Sent a {msg['media_type']}]"
         elif msg['media_type'] and content:
-            content = f"[Sent a {msg['media_type']} with caption]: {content}"
-            
+            content = f"[{msg['media_type']} with caption]: {content}"
         history.append({"role": role, "content": content})
-    return history[::-1]
+    return history[::-1]  # chronological
 
-def download_media(message_id, chat_jid):
-    data = {"message_id": message_id, "chat_jid": chat_jid}
+
+def get_chat_meta(chat_jid: str) -> dict:
+    """Return chat name and recent plaintext for classification."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Try to get chat name from chats table
     try:
-        response = requests.post(DOWNLOAD_API_URL, json=data, timeout=10)
+        cursor.execute("SELECT name FROM chats WHERE jid = ?", (chat_jid,))
+        row = cursor.fetchone()
+        name = row['name'] if row else ""
+    except Exception:
+        name = ""
+
+    # Get last 30 messages for keyword classification
+    cursor.execute("""
+        SELECT content FROM messages
+        WHERE chat_jid = ? AND content IS NOT NULL AND content != ''
+        ORDER BY timestamp DESC LIMIT 30
+    """, (chat_jid,))
+    recent_texts = [r['content'] for r in cursor.fetchall()]
+    conn.close()
+    return {"name": name, "recent_texts": recent_texts}
+
+
+# ─── Media Processing (unchanged from v1) ─────────────────────────────────────
+
+def download_media(message_id: str, chat_jid: str) -> str | None:
+    try:
+        response = requests.post(DOWNLOAD_API_URL,
+                                  json={"message_id": message_id, "chat_jid": chat_jid},
+                                  timeout=10)
         response.raise_for_status()
         res = response.json()
         if res.get('success') and 'path' in res:
             return res['path']
     except Exception as e:
-        print(f"Error downloading media {message_id}: {e}")
+        print(f"[media download error] {e}")
     return None
 
-def process_media(file_path, media_type):
+
+def process_media(file_path: str, media_type: str) -> list | None:
     if not file_path or not os.path.exists(file_path):
         return None
-        
     try:
         if media_type == "image":
             with open(file_path, "rb") as f:
-                base64_data = base64.b64encode(f.read()).decode('utf-8')
-            return [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}}]
-            
+                b64 = base64.b64encode(f.read()).decode()
+            return [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]
+
         elif media_type == "video":
-            frame_path = file_path + "_frame.jpg"
-            subprocess.run(["ffmpeg", "-y", "-i", file_path, "-vframes", "1", "-f", "image2", frame_path], 
+            frame = file_path + "_frame.jpg"
+            subprocess.run(["ffmpeg", "-y", "-i", file_path, "-vframes", "1", "-f", "image2", frame],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(frame_path):
-                with open(frame_path, "rb") as f:
-                    base64_data = base64.b64encode(f.read()).decode('utf-8')
-                return [{"type": "text", "text": "[Sent a video. Here is a frame from the video:]"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}}]
-            return [{"type": "text", "text": "[Sent a video but failed to extract frame]"}]
-            
+            if os.path.exists(frame):
+                with open(frame, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                return [
+                    {"type": "text", "text": "[Sent a video — here is a frame:]"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                ]
+            return [{"type": "text", "text": "[Sent a video, frame extraction failed]"}]
+
         elif media_type == "audio":
-            wav_path = file_path + ".wav"
-            subprocess.run(["ffmpeg", "-y", "-i", file_path, wav_path],
+            wav = file_path + ".wav"
+            subprocess.run(["ffmpeg", "-y", "-i", file_path, wav],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(wav_path):
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(wav_path) as source:
-                    audio_data = recognizer.record(source)
+            if os.path.exists(wav):
+                rec = sr.Recognizer()
+                with sr.AudioFile(wav) as src:
+                    audio_data = rec.record(src)
                 try:
-                    text = recognizer.recognize_google(audio_data)
-                    return [{"type": "text", "text": f"[Voice Note Transcription: '{text}']"}]
+                    text = rec.recognize_google(audio_data)
+                    return [{"type": "text", "text": f"[Voice note: '{text}']"}]
                 except sr.UnknownValueError:
-                    return [{"type": "text", "text": "[Voice Note: Inaudible or silent]"}]
+                    return [{"type": "text", "text": "[Voice note: inaudible]"}]
                 except sr.RequestError:
-                    return [{"type": "text", "text": "[Voice Note: Transcription service unavailable]"}]
-                    
+                    return [{"type": "text", "text": "[Voice note: transcription unavailable]"}]
     except Exception as e:
-        print(f"Error processing {media_type}: {e}")
-        
+        print(f"[media process error] {e}")
     return None
 
-def get_ai_reply(chat_history, new_message_payload=None):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    messages = [{"role": "system", "content": PROMPT}] + chat_history
-    if new_message_payload:
-        messages.append({"role": "user", "content": new_message_payload})
-        
-    models_to_try = [
-        "openai/gpt-4o-mini",
-        "openrouter/auto",
-        "google/gemma-4-31b-it:free"
-    ]
-    
-    for model in models_to_try:
-        data = {"model": model, "messages": messages, "max_tokens": 500}
-        for attempt in range(2):
-            try:
-                response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data, timeout=20)
-                if response.status_code in [429, 402]:
-                    print(f"Token/Rate limit on {model} (Attempt {attempt+1}/2). Waiting...")
-                    time.sleep(2)
-                    continue
-                response.raise_for_status()
-                result = response.json()
-                if 'choices' in result and len(result['choices']) > 0:
-                    return result['choices'][0]['message']['content']
-                else:
-                    break
-            except Exception as e:
-                print(f"Error with model {model}: {e}")
-                time.sleep(1)
-    return "I am busy right now, I'll text you later!"
 
-def send_whatsapp_message(recipient_jid, content):
+# ─── AI Reply ─────────────────────────────────────────────────────────────────
+
+API_URLS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions"
+}
+
+API_KEYS = {
+    "gemini": [k for k in [
+        os.environ.get("GEMINI_API_KEY")
+    ] if k],
+    "openrouter": [k for k in [
+        os.environ.get("OPENROUTER_API_KEY_1"),
+        os.environ.get("OPENROUTER_API_KEY_2"),
+        os.environ.get("OPENROUTER_API_KEY_3")
+    ] if k]
+}
+
+MODELS = [
+    ("gemini", "gemini-2.5-flash"),
+    ("openrouter", "openai/gpt-4o-mini"),
+    ("openrouter", "anthropic/claude-3.5-sonnet"),
+    ("gemini", "gemini-1.5-flash"),
+    ("openrouter", "openai/gpt-4o"),
+    ("openrouter", "meta-llama/llama-3.3-70b-instruct"),
+    ("openrouter", "openrouter/free"),
+    ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
+    ("openrouter", "nousresearch/hermes-3-llama-3.1-405b:free"),
+    ("openrouter", "openrouter/auto")
+]
+
+def get_ai_reply(system_prompt: str, chat_history: list[dict],
+                 new_message_payload) -> str | None:
+    
+    messages = [{"role": "system", "content": system_prompt}] + chat_history
+    messages.append({"role": "user", "content": new_message_payload})
+
+    for provider, model in MODELS:
+        api_url = API_URLS[provider]
+        keys_to_try = API_KEYS[provider]
+        
+        for api_key in keys_to_try:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            try:
+                resp = requests.post(
+                    api_url,
+                    headers=headers,
+                    json={"model": model, "messages": messages, "max_tokens": 500},
+                    timeout=20,
+                )
+                if resp.status_code in [429, 402, 403]:
+                    # 429 = Rate limited, 402 = Payment required, 403 = Forbidden (e.g. invalid key)
+                    print(f"[fallback] {provider} Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
+                    time.sleep(1)
+                    continue
+                
+                if resp.status_code != 200:
+                    print(f"[API Error] {model} with key {api_key[:12]}... HTTP {resp.status_code}: {resp.text}")
+                    if resp.status_code in [404, 400]:
+                        break # Try next model
+                    continue
+                
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get('choices'):
+                    return result['choices'][0]['message']['content']
+            except Exception as e:
+                print(f"[AI error] {model} with key {api_key[:12]}: {e}")
+                time.sleep(1)
+                
+        print(f"[model fallback] Exhausted all {provider} keys for {model}. Trying next model...")
+    
+    return None
+
+
+def should_send(reply_text: str | None, group_type: str) -> bool:
+    """Filter out SKIP signals and empty replies."""
+    if not reply_text:
+        return False
+    if reply_text.strip().upper() == "SKIP":
+        return False
+    if len(reply_text.strip()) < 1:
+        return False
+    return True
+
+
+# ─── WhatsApp Send ────────────────────────────────────────────────────────────
+
+def send_whatsapp_message(recipient_jid: str, content: str) -> None:
     try:
-        response = requests.post(WHATSAPP_API_URL, json={"recipient": recipient_jid, "message": content}, timeout=10)
-        response.raise_for_status()
-        print(f"Sent reply to {recipient_jid}")
+        resp = requests.post(WHATSAPP_API_URL,
+                              json={"recipient": recipient_jid, "message": content},
+                              timeout=10)
+        resp.raise_for_status()
+        print(f"[sent] → {recipient_jid}")
     except Exception as e:
-        print(f"Error sending WhatsApp message: {e}")
+        print(f"[send error] {e}")
+
+
+# ─── Main Loop ────────────────────────────────────────────────────────────────
 
 def main():
-    print("Starting SUPERIOR Multimodal WhatsApp Auto-Reply Bot...")
+    print("=== DIODE WhatsApp Bot v2 — Context-Aware, Group-Typed ===")
+
     if not os.path.exists(DB_PATH):
-        print("Database not found.")
+        print(f"[error] DB not found at {DB_PATH}")
         return
-        
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT MAX(timestamp) FROM messages")
     result = cursor.fetchone()[0]
     conn.close()
-    
-    last_timestamp = result if result else time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-    print(f"Listening for instant new messages (Text, Audio, Video, Photo) after {last_timestamp}...")
-    
+
+    last_timestamp = result or time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    print(f"[ready] Polling for messages after {last_timestamp}...")
+
+    # Cache group classifications to avoid repeated DB hits
+    group_type_cache: dict[str, str] = {}
+
+    bot_active = True
+
     while True:
         try:
             new_messages = get_new_messages(last_timestamp)
+
             for msg in new_messages:
-                content = msg['content']
-                chat_jid = msg['chat_jid']
-                msg_time = msg['timestamp']
+                chat_jid   = msg['chat_jid']
+                content    = msg['content'] or ""
                 media_type = msg['media_type']
-                msg_id = msg['id']
-                
+                is_from_me = msg['is_from_me']
+                msg_id     = msg['id']
+                msg_time   = msg['timestamp']
+
                 if msg_time > last_timestamp:
                     last_timestamp = msg_time
-                    
+
+                # Check for kill switch
+                if is_from_me:
+                    if content.strip().lower() == '#stop':
+                        bot_active = False
+                        print("[COMMAND] Bot STOPPED via #stop command")
+                    elif content.strip().lower() == '#start':
+                        bot_active = True
+                        print("[COMMAND] Bot STARTED via #start command")
+                    continue  # Skip all self-messages from being replied to
+
+                if not bot_active:
+                    continue  # Bot is paused
+
                 if not content and not media_type:
                     continue
-                    
-                print(f"New message in {chat_jid}: Content='{content}', Media={media_type}")
-                
-                new_message_payload = []
-                
+
+                # ── Classify group ──────────────────────────────────────────
+                if chat_jid not in group_type_cache:
+                    meta = get_chat_meta(chat_jid)
+                    gtype = classify_group(chat_jid, meta['name'], meta['recent_texts'])
+                    group_type_cache[chat_jid] = gtype
+                    print(f"[classify] {chat_jid} → {gtype} (name: {meta['name']!r})")
+
+                group_type = group_type_cache[chat_jid]
+
+                # ── PUBLIC: always skip ─────────────────────────────────────
+                if group_type == "PUBLIC":
+                    print(f"[skip PUBLIC] {chat_jid}")
+                    continue
+
+                system_prompt = TYPE_TO_PROMPT.get(group_type, STYLE_COMPANY)
+                if not system_prompt:
+                    continue
+
+                print(f"[new msg] {group_type} | {chat_jid} | content={content!r} | media={media_type}")
+
+                # ── Build message payload ───────────────────────────────────
+                new_msg_parts = []
+
                 if media_type:
                     file_path = download_media(msg_id, chat_jid)
-                    media_payload = process_media(file_path, media_type)
-                    if media_payload:
-                        new_message_payload.extend(media_payload)
-                        
+                    media_parts = process_media(file_path, media_type)
+                    if media_parts:
+                        new_msg_parts.extend(media_parts)
+
                 if content:
-                    new_message_payload.append({"type": "text", "text": content})
-                    
-                if not new_message_payload:
+                    new_msg_parts.append({"type": "text", "text": content})
+
+                if not new_msg_parts:
                     continue
-                    
-                # For basic text requests, we can just pass the string payload
-                if len(new_message_payload) == 1 and new_message_payload[0]["type"] == "text":
-                    final_payload = new_message_payload[0]["text"]
-                else:
-                    final_payload = new_message_payload
-                    
+
+                # Simplify to string if pure text
+                final_payload = (new_msg_parts[0]["text"]
+                                 if len(new_msg_parts) == 1 and new_msg_parts[0]["type"] == "text"
+                                 else new_msg_parts)
+
+                # ── Fetch context ───────────────────────────────────────────
                 chat_history = get_chat_history(chat_jid, limit=150)
-                reply_text = get_ai_reply(chat_history, new_message_payload=final_payload)
-                
-                if reply_text:
-                    print(f"AI Reply: {reply_text}")
-                    send_whatsapp_message(chat_jid, reply_text)
-                    
-            time.sleep(0.5) 
-            
+
+                # ── Get AI reply ────────────────────────────────────────────
+                reply = get_ai_reply(system_prompt, chat_history, final_payload)
+                print(f"[AI reply raw] {reply!r}")
+
+                # ── Send if appropriate ─────────────────────────────────────
+                if should_send(reply, group_type):
+                    send_whatsapp_message(chat_jid, reply.strip())
+                else:
+                    print(f"[skip reply] group={group_type} | reply={reply!r}")
+
+            time.sleep(0.5)
+
         except Exception as e:
-            print(f"Error in polling loop: {e}")
+            print(f"[loop error] {e}")
             time.sleep(1)
+
 
 if __name__ == "__main__":
     main()
