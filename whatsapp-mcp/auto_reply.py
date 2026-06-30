@@ -8,6 +8,7 @@ import time
 import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
@@ -163,6 +164,10 @@ static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
 app.mount("/dashboard", StaticFiles(directory=static_dir, html=True), name="static")
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/dashboard/")
 
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
