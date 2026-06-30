@@ -16,6 +16,11 @@ Improvements over v1:
 
 import sqlite3
 import time
+
+from fastapi import FastAPI, Request, BackgroundTasks
+import uvicorn
+import asyncio
+from contextlib import asynccontextmanager
 import requests
 import os
 import base64
@@ -957,414 +962,308 @@ def send_whatsapp_message(chat_jid: str, content: str):
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 
-def main():
-    print("=== DIODE WhatsApp Bot v3 — Universal Fallback + Dedup + Burst Grouping ===")
 
-    if not os.path.exists(DB_PATH):
-        print(f"[error] DB not found at {DB_PATH}")
-        return
+# ─── FastAPI & Background Tasks ───────────────────────────────────────────────
 
-    last_rowid = None
-    replied_ids = set()
-    group_type_cache = {}
-    pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
-    bot_state = load_bot_state()
-    bot_active = bot_state.get('active', True)
+bot_state = load_bot_state()
+bot_active = bot_state.get('active', True)
+replied_ids = set()
+group_type_cache = {}
+pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
 
-    # Identify Sujal's own "All data" JID for command parsing
-    all_data_jid = ""
-    for ck, profile in CONTACT_MEMORY.items():
-        if ck == 'all_data':
-            all_data_jid = profile.get('jid', '')
+all_data_jid = ""
+for ck, profile in CONTACT_MEMORY.items():
+    if ck == 'all_data':
+        all_data_jid = profile.get('jid', '')
 
+async def pending_messages_loop():
+    global bot_state, bot_active, pending, group_type_cache, replied_ids, all_data_jid
     while True:
         try:
-            # ── Check bridge ready ──────────────────────────────────────────
-            try:
-                requests.get(BRIDGE_URL, timeout=2)
-            except Exception as e:
-                # Bridge not up yet
-                if not getattr(time, '_printed_bridge_wait', False):
-                    print(f"[DEBUG] Waiting for bridge... (Error: {e})", flush=True)
-                    time._printed_bridge_wait = True
-                time.sleep(2)
-                continue
-            
-            # Initialize last_rowid exactly once after bridge is up
-            if last_rowid is None:
-                last_rowid = get_latest_message_rowid()
-                print(f"[DEBUG] Started bot. Initial last_rowid = {last_rowid}", flush=True)
-
-            # ── 1. Ingest new messages into pending queues ──────────────────
-            new_messages = get_new_messages(last_rowid)
-            if new_messages:
-                print(f"[DEBUG] get_new_messages returned {len(new_messages)} rows. last_rowid was {last_rowid}", flush=True)
-
-            # ── Check proactive auto-text routines ──────────────────────────
             if bot_active:
                 process_auto_routines()
 
-            for msg in new_messages:
-                chat_jid   = msg['chat_jid']
-                content    = msg['content'] or ""
-                media_type = msg['media_type']
-                is_from_me = msg['is_from_me']
-                msg_id     = msg['id']
-                msg_rowid  = msg['rowid']
-
-                if msg_rowid > last_rowid:
-                    last_rowid = msg_rowid
-
-                # ── Parse commands from Sujal's own messages in "All data" ──
-                if is_from_me:
-                    if chat_jid == all_data_jid and content.strip():
-                        # Prevent infinite loop: ignore bot's own responses
-                        if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
-                            continue
-                            
-                        new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
-                        if cmd_response:
-                            bot_state = new_state
-                            bot_active = bot_state['active']
-                            save_bot_state(bot_state)
-                            print(f"[COMMAND] {content!r} → {cmd_response}")
-                            
-                            if cmd_response.startswith("AI_CONFIRM_RULE:"):
-                                rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
-                                prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
-                                conf_reply = get_ai_reply(prompt, [], "Acknowledge the rule.", has_media=False)
-                                import re
-                                if conf_reply:
-                                    # Strip tags if it hallucinated them
-                                    clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
-                                    clean_conf = re.sub(r'<reply>(.*?)</reply>', r'\1', clean_conf, flags=re.DOTALL).strip()
-                                    send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
-                                else:
-                                    send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
-                            else:
-                                send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
-                    # Legacy global commands from anywhere
-                    elif content.strip().lower() == '#stop':
-                        bot_active = False
-                        bot_state['active'] = False
-                        save_bot_state(bot_state)
-                        print("[COMMAND] Bot STOPPED")
-                    elif content.strip().lower() == '#start':
-                        bot_active = True
-                        bot_state['active'] = True
-                        save_bot_state(bot_state)
-                        print("[COMMAND] Bot STARTED")
-                    continue  # Never reply to self-messages
-
-                if not bot_active:
-                    continue  # Bot is paused
-
-                # ── Check whitelist / muting ──
-                whitelist_jids = bot_state.get('reply_only_jids', [])
-                if whitelist_jids and chat_jid not in whitelist_jids and chat_jid != all_data_jid:
-                    replied_ids.add(msg_id)
-                    continue
-
-                muted_jids = bot_state.get('muted_jids', [])
-                if chat_jid in muted_jids:
-                    replied_ids.add(msg_id)
-                    print(f"[muted] Skipping reply to {chat_jid}")
-                    continue
-                    
-                if msg_id in replied_ids:
-                    continue
-
-                if not content and not media_type:
-                    replied_ids.add(msg_id)
-                    continue
-
-                # ── Classify group ──────────────────────────────────────────
-                if chat_jid not in group_type_cache:
-                    meta = get_chat_meta(chat_jid)
-                    gtype = classify_group(chat_jid, meta['name'], meta['recent_texts'])
-                    group_type_cache[chat_jid] = {"type": gtype, "name": meta['name']}
-                    print(f"[classify] {chat_jid} → {gtype} (name: {meta['name']!r})")
-
-                group_info = group_type_cache[chat_jid]
-                group_type = group_info["type"]
-                chat_name = group_info["name"] or chat_jid.split('@')[0]
-
-                # ── PUBLIC or All-Group Mute ────────────────────────────────
-                if group_type == "PUBLIC" or (bot_state.get('mute_all_groups', False) and '@g.us' in chat_jid):
-                    replied_ids.add(msg_id)
-                    continue
-
-                # ── Check for contact-specific memory first ─────────────
-                contact_prompt = get_contact_prompt(chat_name, chat_jid)
-                if contact_prompt:
-                    raw_prompt = contact_prompt
-                else:
-                    raw_prompt = TYPE_TO_PROMPT.get(group_type, STYLE_COMPANY)
-                if not raw_prompt:
-                    replied_ids.add(msg_id)
-                    continue
-                
-                system_prompt = raw_prompt.replace("{chat_name}", chat_name)
-
-                replied_ids.add(msg_id)
-                
-                # Add to pending burst queue for this chat
-                now = time.time()
-                delay = random.uniform(REPLY_DELAY_MIN, REPLY_DELAY_MAX)
-                fire_at = now + delay
-
-                if chat_jid not in pending:
-                    pending[chat_jid] = {
-                        "msgs": [],
-                        "fire_at": fire_at,
-                        "system_prompt": system_prompt,
-                        "group_type": group_type,
-                    }
-                else:
-                    # Extend window if more messages arrive (but cap at REPLY_DELAY_MAX)
-                    pending[chat_jid]["fire_at"] = min(
-                        fire_at,
-                        pending[chat_jid]["fire_at"] + BURST_WINDOW
-                    )
-
-                pending[chat_jid]["msgs"].append({
-                    "id": msg_id,
-                    "content": content,
-                    "media_type": media_type,
-                })
-                print(f"[queued] {chat_jid} | msg: {str(content)[:50]} | fire in {delay:.1f}s")
-                
-            # ── 2. Fire pending replies whose timer has expired ─────────────
             now = time.time()
             to_del = []
-
-            for chat_jid, pending_data in pending.items():
-                if now < pending_data["fire_at"]:
-                    continue  # Not time yet
-
-                to_del.append(chat_jid)
-                msgs          = pending_data["msgs"]
-                system_prompt = pending_data["system_prompt"]
-                group_type    = pending_data["group_type"]
-
-                print(f"[firing] {chat_jid} | {len(msgs)} msg(s) in burst")
-
-                # Build combined payload from all burst msgs
-                combined_parts = []
-                for m in msgs:
-                    if m['media_type']:
-                        file_path   = download_media(m['id'], chat_jid)
-                        media_parts = process_media(file_path, m['media_type'])
-                        if media_parts:
-                            combined_parts.extend(media_parts)
-                    if m['content']:
-                        combined_parts.append({"type": "text", "text": m['content']})
-
-                if not combined_parts:
-                    continue
-
-                # Check bot-probe on all combined text
-                all_text = " ".join(
-                    p["text"] for p in combined_parts if p.get("type") == "text"
-                )
-
-                if is_bot_probe(all_text):
-                    # Deflect naturally — don't call AI
-                    deflect = random.choice(BOT_DEFLECT_RESPONSES)
-                    send_whatsapp_message(chat_jid, deflect)
-                    continue
-
-                # Detect if this burst has media (image/audio/video)
-                has_media_content = any(
-                    p.get("type") == "image_url" for p in combined_parts
-                )
-
-                # Simplify to string if pure single text msg
-                if len(combined_parts) == 1 and combined_parts[0]["type"] == "text":
-                    final_payload = combined_parts[0]["text"]
-                    has_media_content = False
-                else:
-                    final_payload = combined_parts
-
-                # 1. Fetch decoupled chat history
-                chat_history = agent_memory.get_history(chat_jid, limit=16)
-
-                # 2. Retrieve RAG knowledge
-                top_chunks = agent_memory.retrieve_knowledge(str(final_payload), top_k=4)
-                if top_chunks:
-                    knowledge_text = "\n\n".join([f"[{c['source']}] {c['content']}" for c in top_chunks])
-                    system_prompt += f"\n\n<knowledge>\n{knowledge_text}\n</knowledge>\n"
-                    system_prompt += "RULES: If the answer is in <knowledge>, answer directly. If NOT, don't guess.\n"
-
-                # --- CONTENT CREATOR INTERCEPT ---
-                is_creator_jid = (chat_jid == "79010285498516@s.whatsapp.net")
-                if is_creator_jid or "script for content" in all_text.lower():
-                    prompt_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'master_marketing_prompt.txt')
-                    if os.path.exists(prompt_path):
-                        with open(prompt_path, 'r', encoding='utf-8') as pf:
-                            system_prompt = pf.read()
-                    else:
-                        system_prompt = "You are a Senior Global Marketing Strategist. Ask the user for destination country, job title, and salary before giving a script."
-
-                # 2.5 Inject Context, Time, and Custom Rules
-                current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
-                
-                custom_rule_block = ""
-                instr_list = bot_state.get('general_instructions', [])
-                if instr_list:
-                    rules_str = "\n".join(f"- {r}" for r in instr_list)
-                    custom_rule_block = f"\nCRITICAL CUSTOM RULES FROM SUJAL (Follow strictly!):\n{rules_str}\n"
-
-                system_prompt += f"""
-{custom_rule_block}
-<context>
-Current Time & Date: {current_time}
-Situational Analysis: Before answering, deeply analyze the chat history. Think about why the user sent this message right now, the time of day, the context of the situation, and how you should best react.
-Check the Current Time & Date against any custom rules (e.g., "don't reply until 5 PM"). If a rule restricts replying until a specific time, and that time hasn't passed, you MUST SKIP.
-</context>
-
-IMPORTANT OUTPUT FORMAT:
-You MUST think and analyze the situation before replying. Wrap your inner thoughts inside <thought> tags.
-After thinking, wrap the actual message you want to send inside <reply> tags.
-
-MEMORY SYSTEM — AUTO-LEARN:
-If during this conversation you discover a NEW, IMPORTANT fact about anyone (e.g., a birthday, a new job, a preference, a plan, a mood pattern, a relationship detail), you MUST output one or more <remember> tags.
-Only remember facts that are genuinely useful for future conversations. Do NOT remember trivial greetings or small talk.
-You can output multiple <remember> tags if there are multiple facts.
-
-CRITICAL SKIP LOGIC:
-You must critically evaluate if a reply is necessary. DO NOT just reply to reply. 
-You MUST output exactly the word SKIP inside the reply tags (i.e. <reply>SKIP</reply>) IF:
-1. A Custom Rule dictates that you should not reply.
-2. A Custom Rule restricts replying until a specific time, and the Current Time has not reached it.
-3. The user sent a generic acknowledgment ("ok", "hmm", 👍) that does not need an answer.
-4. The message is clearly directed at someone else in a group, not you.
-Do NOT apologize or explain inside the reply tags when skipping.
-
-Example 1 (Normal reply + learning a fact):
-<thought>
-User said they just got a new job at Google. This is important to remember.
-</thought>
-<remember>User got a new job at Google (learned on {current_time})</remember>
-<reply>congrats bro! google ma? kati ramro</reply>
-
-Example 2 (Normal reply, nothing new to learn):
-<thought>
-User said "k xa?". Just a casual greeting, nothing new to remember.
-</thought>
-<reply>thikai xu</reply>
-
-Example 3 (Muted due to rule):
-<thought>
-Sujal's rule says "never talk about school today". The user is asking about school. I should not reply.
-</thought>
-<reply>SKIP</reply>
-
-Example 4 (Contextual Smart Skip):
-<thought>
-The user just sent "ok thanks". No further response is needed to this acknowledgment.
-</thought>
-<reply>SKIP</reply>
-"""
-
-                # 3. Save incoming user message
-                agent_memory.save_message(chat_jid, "user", str(final_payload))
-
-                # If this is the content creator, force the best models available (Claude 3.5 Sonnet / GPT-4o)
-                override_models = None
-                if is_creator_jid or "script for content" in all_text.lower():
-                    override_models = [
-                        ("openrouter", "anthropic/claude-3.5-sonnet"),
-                        ("openrouter", "openai/gpt-4o"),
-                        ("groq", "llama-3.3-70b-versatile"),
-                        ("openrouter", "google/gemini-2.5-flash"),
-                        ("openrouter", "qwen/qwen-2.5-72b-instruct")
-                    ]
-
-                raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content, force_model_list=override_models)
-                if not raw_reply:
-                    continue
-
-                print(f"[AI reply raw] {str(raw_reply)[:150]}...")
-
-                # Parse out thought, reply, and remember tags
-                import re
-                thought_match = re.search(r'<thought>(.*?)</thought>', raw_reply, re.DOTALL)
-                reply_match = re.search(r'<reply>(.*?)</reply>', raw_reply, re.DOTALL)
-                remember_matches = re.findall(r'<remember>(.*?)</remember>', raw_reply, re.DOTALL)
-
-                thought = thought_match.group(1).strip() if thought_match else "No thought provided."
-                
-                if reply_match:
-                    reply = reply_match.group(1).strip()
-                else:
-                    # Fallback if AI forgot tags
-                    cleaned = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL)
-                    cleaned = re.sub(r'<remember>.*?</remember>', '', cleaned, flags=re.DOTALL)
-                    reply = cleaned.strip()
-
-                # Apply final WhatsApp cleanup
-                reply = clean_whatsapp_formatting(reply)
-
-                # AUTO-MEMORY: Save any <remember> facts to knowledge.txt and DB
-                if remember_matches:
-                    base_dir = os.path.dirname(os.path.abspath(__file__))
-                    knowledge_file = os.path.join(base_dir, 'knowledge.txt')
+            for chat_jid, data in list(pending.items()):
+                if now >= data['fire_at']:
+                    # TIME TO FIRE!
+                    group_type = data['group_type']
+                    system_prompt = data['system_prompt']
                     
-                    for fact in remember_matches:
-                        fact = fact.strip()
-                        if len(fact) < 5:
-                            continue  # Skip garbage
-                        
-                        # Append to knowledge.txt
-                        with open(knowledge_file, 'a', encoding='utf-8') as kf:
-                            kf.write(f"\n[Auto-learned | {current_time} | {chat_jid}] {fact}\n")
-                        
-                        # Insert into agent_memory.db knowledge_chunks table
-                        try:
-                            import sqlite3
-                            conn = sqlite3.connect(agent_memory.DB_PATH)
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO knowledge_chunks (source, content, embedding) VALUES (?, ?, ?)",
-                                (f"auto_learned_{chat_jid}", fact, "[]")
-                            )
-                            conn.commit()
-                            conn.close()
-                        except Exception as e:
-                            print(f"[memory error] Failed to save fact: {e}")
-                        
-                        print(f"[REMEMBERED] {fact[:80]}")
+                    # Deduplicate before joining
+                    unique_msgs = []
+                    seen = set()
+                    for m in data['msgs']:
+                        # Simple deduplication based on content (or media type if content is empty)
+                        fingerprint = f"{m['content']}|{m['media_type']}"
+                        if fingerprint not in seen:
+                            seen.add(fingerprint)
+                            unique_msgs.append(m)
+                    
+                    combined_text = "\n".join(f"[{m['sender']}]: {m['content']}" for m in unique_msgs if m['content'])
+                    has_media = any(m['media_type'] for m in unique_msgs)
+                    media_notes = "\n".join(f"[Sent {m['media_type']}: {m['filename']}]" for m in unique_msgs if m['media_type'])
+                    
+                    final_payload = combined_text
+                    if media_notes:
+                        final_payload += f"\n{media_notes}"
+                    
+                    print(f"\n--- 🚀 FIRING REPLY TO {chat_jid} ---")
+                    print(f"Messages:\n{final_payload}")
+                    
+                    if not final_payload.strip():
+                        to_del.append(chat_jid)
+                        continue
 
-                # Save everything to the AI conversation log
-                log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"=== {current_time} | Chat: {chat_jid} ===\n")
-                    f.write(f"User: {str(final_payload)}\n")
-                    f.write(f"AI Thought: {thought}\n")
+                    # Generate reply
+                    raw_reply = get_ai_reply(system_prompt, [], final_payload, has_media=has_media, is_creator=(chat_jid==all_data_jid))
+                    current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+                    if raw_reply is None:
+                        to_del.append(chat_jid)
+                        continue
+
+                    # Parse out thought, reply, and remember tags
+                    import re
+                    thought_match = re.search(r'<thought>(.*?)</thought>', raw_reply, re.DOTALL)
+                    reply_match = re.search(r'<reply>(.*?)</reply>', raw_reply, re.DOTALL)
+                    remember_matches = re.findall(r'<remember>(.*?)</remember>', raw_reply, re.DOTALL)
+
+                    thought = thought_match.group(1).strip() if thought_match else "No thought provided."
+                    
+                    if reply_match:
+                        reply = reply_match.group(1).strip()
+                    else:
+                        # Fallback if AI forgot tags
+                        cleaned = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL)
+                        cleaned = re.sub(r'<remember>.*?</remember>', '', cleaned, flags=re.DOTALL)
+                        reply = cleaned.strip()
+
+                    # Apply final WhatsApp cleanup
+                    reply = clean_whatsapp_formatting(reply)
+
+                    # AUTO-MEMORY: Save any <remember> facts to knowledge.txt and DB
                     if remember_matches:
-                        f.write(f"AI Remembered: {'; '.join(r.strip() for r in remember_matches)}\n")
-                    f.write(f"AI Reply: {reply}\n\n")
+                        base_dir = os.path.dirname(os.path.abspath(__file__))
+                        knowledge_file = os.path.join(base_dir, 'knowledge.txt')
+                        
+                        for fact in remember_matches:
+                            fact = fact.strip()
+                            if len(fact) < 5:
+                                continue  # Skip garbage
+                            
+                            # Append to knowledge.txt
+                            with open(knowledge_file, 'a', encoding='utf-8') as kf:
+                                kf.write(f"\n[Auto-learned | {current_time} | {chat_jid}] {fact}\n")
+                            
+                            # Insert into agent_memory.db knowledge_chunks table
+                            try:
+                                import sqlite3
+                                conn = sqlite3.connect(agent_memory.DB_PATH)
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    "INSERT INTO knowledge_chunks (source, content, embedding) VALUES (?, ?, ?)",
+                                    (f"auto_learned_{chat_jid}", fact, "[]")
+                                )
+                                conn.commit()
+                                conn.close()
+                            except Exception as e:
+                                print(f"[memory error] Failed to save fact: {e}")
+                            
+                            print(f"[REMEMBERED] {fact[:80]}")
 
-                if should_send(reply, group_type, chat_jid):
-                    # 4. Save outgoing assistant reply
-                    agent_memory.save_message(chat_jid, "assistant", reply.strip())
-                    send_whatsapp_message(chat_jid, reply.strip())
-                    print(f"[sent] -> {chat_jid}: {reply.strip()[:60]!r}")
-                else:
-                    print(f"[skip reply] group={group_type} | reply={reply!r}")
+                    # Save everything to the AI conversation log
+                    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
+                    with open(log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"=== {current_time} | Chat: {chat_jid} ===\n")
+                        f.write(f"User: {str(final_payload)}\n")
+                        f.write(f"AI Thought: {thought}\n")
+                        if remember_matches:
+                            f.write(f"AI Remembered: {'; '.join(r.strip() for r in remember_matches)}\n")
+                        f.write(f"AI Reply: {reply}\n\n")
+
+                    if should_send(reply, group_type, chat_jid):
+                        # 4. Save outgoing assistant reply
+                        agent_memory.save_message(chat_jid, "assistant", reply.strip())
+                        send_whatsapp_message(chat_jid, reply.strip())
+                        print(f"[sent] -> {chat_jid}: {reply.strip()[:60]!r}")
+                    else:
+                        print(f"[skip reply] group={group_type} | reply={reply!r}")
+
+                    to_del.append(chat_jid)
 
             for jid in to_del:
                 del pending[jid]
 
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"[loop error] {e}", flush=True)
-            time.sleep(1)
+            await asyncio.sleep(1)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background loop
+    task = asyncio.create_task(pending_messages_loop())
+    yield
+    # Clean up
+    task.cancel()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/webhook")
+async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
+    global bot_state, bot_active, all_data_jid
+    msg = await request.json()
+    
+    chat_jid   = msg.get('chat_jid')
+    content    = msg.get('content') or ""
+    media_type = msg.get('media_type', '')
+    is_from_me = msg.get('is_from_me', False)
+    msg_id     = msg.get('id')
+    sender     = msg.get('sender', '')
+    filename   = msg.get('filename', '')
+
+    # ── Parse commands from Sujal's own messages in "All data" ──
+    if is_from_me:
+        if chat_jid == all_data_jid and content.strip():
+            # Prevent infinite loop: ignore bot's own responses
+            if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
+                return {"status": "ignored"}
+                
+            new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
+            if cmd_response:
+                bot_state = new_state
+                bot_active = bot_state['active']
+                save_bot_state(bot_state)
+                print(f"[COMMAND] {content!r} → {cmd_response}")
+                
+                if cmd_response.startswith("AI_CONFIRM_RULE:"):
+                    rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
+                    prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
+                    conf_reply = get_ai_reply(prompt, [], "Acknowledge the rule.", has_media=False)
+                    import re
+                    if conf_reply:
+                        clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
+                        clean_conf = re.sub(r'<reply>(.*?)</reply>', r'', clean_conf, flags=re.DOTALL).strip()
+                        send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
+                    else:
+                        send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
+                else:
+                    send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
+        elif content.strip().lower() == '#stop':
+            bot_active = False
+            bot_state['active'] = False
+            save_bot_state(bot_state)
+        elif content.strip().lower() == '#start':
+            bot_active = True
+            bot_state['active'] = True
+            save_bot_state(bot_state)
+        return {"status": "ok"}
+
+    if not bot_active:
+        return {"status": "paused"}
+
+    # ── Check whitelist / muting ──
+    whitelist_jids = bot_state.get('reply_only_jids', [])
+    if whitelist_jids and chat_jid not in whitelist_jids and chat_jid != all_data_jid:
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
+    muted_jids = bot_state.get('muted_jids', [])
+    if chat_jid in muted_jids:
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+        
+    if msg_id in replied_ids:
+        return {"status": "ignored"}
+
+    if not content and not media_type:
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
+    # ── Classify group ──────────────────────────────────────────
+    if chat_jid not in group_type_cache:
+        meta = get_chat_meta(chat_jid)
+        gtype = classify_group(chat_jid, meta['name'], meta['recent_texts'])
+        group_type_cache[chat_jid] = {"type": gtype, "name": meta['name']}
+
+    group_info = group_type_cache[chat_jid]
+    group_type = group_info["type"]
+    chat_name = group_info["name"] or chat_jid.split('@')[0]
+
+    # ── PUBLIC or All-Group Mute ────────────────────────────────
+    if group_type == "PUBLIC" or (bot_state.get('mute_all_groups', False) and '@g.us' in chat_jid):
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
+    # ── Check for contact-specific memory first ─────────────
+    contact_prompt = get_contact_prompt(chat_name, chat_jid)
+    if contact_prompt:
+        raw_prompt = contact_prompt
+    else:
+        raw_prompt = TYPE_TO_PROMPT.get(group_type, STYLE_COMPANY)
+
+    if raw_prompt is None:
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
+    # Dynamically inject general instructions
+    system_prompt = inject_instructions(raw_prompt, bot_state.get('general_instructions', []))
+    system_prompt = system_prompt.format(chat_name=chat_name)
+
+    replied_ids.add(msg_id)
+
+    # Convert voice notes if necessary
+    if media_type == 'audio':
+        print(f"[audio] Downloading voice note {msg_id} for transcription...")
+        local_path = download_media(msg_id, chat_jid)
+        if local_path:
+            text = transcribe_audio(local_path)
+            if text:
+                content = f"[Voice note says: \"{text}\"]"
+                print(f"[transcribed] {content}")
+            else:
+                content = "[User sent a voice note but transcription failed]"
+        else:
+            content = "[User sent a voice note but download failed]"
+    
+    if media_type == 'video':
+        content = "[User sent a video]"
+    elif media_type == 'image':
+        content = "[User sent an image]"
+    elif media_type == 'document':
+        content = f"[User sent a document: {filename}]"
+
+    # Add to buffer (pending dictionary)
+    if chat_jid not in pending:
+        # Group chats have longer cooldown
+        wait_time = GROUP_BUFFER_SECONDS if '@g.us' in chat_jid else DM_BUFFER_SECONDS
+        
+        # Override buffer if it's the Creator testing
+        if chat_jid == all_data_jid:
+            wait_time = 1
+            
+        pending[chat_jid] = {
+            'msgs': [],
+            'fire_at': time.time() + wait_time,
+            'system_prompt': system_prompt,
+            'group_type': group_type
+        }
+    
+    pending[chat_jid]['msgs'].append({
+        'sender': sender,
+        'content': content,
+        'media_type': media_type,
+        'filename': filename
+    })
+    
+    print(f"[buffer] Added msg from {sender} in {chat_jid}. Firing in {pending[chat_jid]['fire_at'] - time.time():.1f}s")
+    return {"status": "ok"}
 
 if __name__ == "__main__":
-    main()
+    import uvicorn
+    uvicorn.run("auto_reply:app", host="0.0.0.0", port=8000, reload=True)

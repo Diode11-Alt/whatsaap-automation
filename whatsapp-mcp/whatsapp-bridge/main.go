@@ -468,6 +468,38 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 		} else if content != "" {
 			fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
 		}
+
+		// Send webhook to Python backend
+		go sendWebhook(map[string]interface{}{
+			"id":         msg.Info.ID,
+			"chat_jid":   chatJID,
+			"sender":     sender,
+			"content":    content,
+			"timestamp":  msg.Info.Timestamp.Unix(), // Send as unix timestamp
+			"is_from_me": msg.Info.IsFromMe,
+			"media_type": mediaType,
+			"filename":   filename,
+		}, logger)
+	}
+}
+
+func sendWebhook(payload map[string]interface{}, logger waLog.Logger) {
+	webhookURL := "http://localhost:8000/webhook"
+	data, err := json.Marshal(payload)
+	if err != nil {
+		logger.Warnf("Failed to marshal webhook payload: %v", err)
+		return
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(data))
+	if err != nil {
+		logger.Warnf("Failed to send webhook: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		logger.Warnf("Webhook returned status: %d", resp.StatusCode)
 	}
 }
 

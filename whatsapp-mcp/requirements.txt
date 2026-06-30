@@ -1,3 +1,5 @@
 requests
 SpeechRecognition
 python-dotenv
+fastapi
+uvicorn
