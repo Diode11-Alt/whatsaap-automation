@@ -208,3 +208,10 @@ TYPE_TO_PROMPT = {
     "COMPANY":  STYLE_COMPANY,
     "PUBLIC":   STYLE_PUBLIC,
 }
+
+CONTACT_PROMPT_MAP = {
+    "kanxo": STYLE_KANXO,
+    "all_data": STYLE_VAULT,
+    "content_creator": STYLE_PRIMEPATH,
+    "primepath": STYLE_PRIMEPATH
+}
