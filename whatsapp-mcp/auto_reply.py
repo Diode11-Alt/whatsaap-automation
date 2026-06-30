@@ -42,9 +42,9 @@ DB_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     'whatsapp-bridge', 'store', 'messages.db'
 )
-WHATSAPP_API_URL = "http://localhost:8080/api/send"
-DOWNLOAD_API_URL = "http://localhost:8080/api/download"
-BRIDGE_URL = "http://localhost:8080"
+WHATSAPP_API_URL = "http://localhost:3000/api/send"
+DOWNLOAD_API_URL = "http://localhost:3000/api/download"
+BRIDGE_URL = "http://localhost:3000"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 # ─── Group Classification ────────────────────────────────────────────────────

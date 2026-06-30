@@ -484,7 +484,12 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 }
 
 func sendWebhook(payload map[string]interface{}, logger waLog.Logger) {
-	webhookURL := "http://localhost:8000/webhook"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+	webhookURL := fmt.Sprintf("http://localhost:%s/webhook", port)
+	
 	data, err := json.Marshal(payload)
 	if err != nil {
 		logger.Warnf("Failed to marshal webhook payload: %v", err)
@@ -1065,8 +1070,8 @@ func main() {
 
 	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
 
-	// Start REST API server
-	startRESTServer(client, messageStore, 8080)
+	// Start REST API server on a safe internal port to avoid clashing with Railway's PORT
+	startRESTServer(client, messageStore, 3000)
 
 	// Create a channel to keep the main goroutine alive
 	exitChan := make(chan os.Signal, 1)
