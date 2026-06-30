@@ -1049,6 +1049,14 @@ async def pending_messages_loop():
                         continue
 
                     # Generate reply
+                    from agent_memory import retrieve_knowledge
+                    
+                    # Search vector database
+                    rag_results = retrieve_knowledge(final_payload, top_k=2)
+                    if rag_results:
+                        rag_context = "\n".join(f"- {r['content']}" for r in rag_results)
+                        system_prompt += f"\n\n<relevant_memory>\n{rag_context}\n</relevant_memory>"
+                        
                     raw_reply = get_ai_reply(system_prompt, [], final_payload, has_media=has_media)
                     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 

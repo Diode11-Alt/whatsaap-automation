@@ -1,15 +1,16 @@
-
 import sqlite3
 import os
 import json
 import math
 import re
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent_memory.db')
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -40,31 +41,6 @@ def init_db():
 # Initialize tables on load
 init_db()
 
-# ─── Local TF-IDF based retrieval (no external API needed) ─────────────────────
-# This works offline and is sufficient for small knowledge bases (<1000 chunks).
-
-def _tokenize(text: str) -> list[str]:
-    return re.findall(r'\b\w+\b', text.lower())
-
-def _tfidf_vector(tokens: list[str], idf: dict[str, float]) -> dict[str, float]:
-    tf: dict[str, float] = {}
-    for t in tokens:
-        tf[t] = tf.get(t, 0) + 1
-    total = len(tokens) or 1
-    return {t: (count / total) * idf.get(t, 1.0) for t, count in tf.items()}
-
-def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
-    common = set(a) & set(b)
-    if not common:
-        return 0.0
-    dot = sum(a[t] * b[t] for t in common)
-    norm_a = math.sqrt(sum(v * v for v in a.values()))
-    norm_b = math.sqrt(sum(v * v for v in b.values()))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 def save_message(user_id: str, role: str, content: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -74,7 +50,6 @@ def save_message(user_id: str, role: str, content: str):
     )
     conn.commit()
     conn.close()
-
 
 def get_history(user_id: str, limit: int = 16) -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -90,39 +65,77 @@ def get_history(user_id: str, limit: int = 16) -> list[dict]:
     history = [{"role": r["role"], "content": r["content"]} for r in rows]
     return history[::-1]  # oldest to newest
 
+# ─── Vector Embeddings and Retrieval ─────────────────────────────────────────
+
+def get_embedding(text: str) -> list[float]:
+    """Get vector embedding using Gemini API."""
+    if not GEMINI_API_KEY:
+        print("Warning: GEMINI_API_KEY not set.")
+        return []
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+    payload = {
+        "model": "models/text-embedding-004",
+        "content": {
+            "parts": [{"text": text}]
+        }
+    }
+    
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("embedding", {}).get("values", [])
+    except Exception as e:
+        print(f"Error getting embedding: {e}")
+        return []
+
+def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    
+    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot_product / (norm_a * norm_b)
 
 def retrieve_knowledge(query: str, top_k: int = 4) -> list[dict]:
-    """Local TF-IDF retrieval — no external API required."""
+    """Vector-based semantic retrieval using Gemini embeddings."""
+    q_vec = get_embedding(query)
+    if not q_vec:
+        return []
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT source, content FROM knowledge_chunks")
+    cursor.execute("SELECT source, content, embedding FROM knowledge_chunks")
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
         return []
 
-    # Build corpus token lists
-    corpus = [(row["source"], row["content"], _tokenize(row["content"])) for row in rows]
-
-    # Compute IDF over corpus
-    N = len(corpus)
-    df: dict[str, int] = {}
-    for _, _, tokens in corpus:
-        for t in set(tokens):
-            df[t] = df.get(t, 0) + 1
-    idf = {t: math.log(N / freq + 1) for t, freq in df.items()}
-
-    # Score query against each chunk
-    q_tokens = _tokenize(query)
-    q_vec = _tfidf_vector(q_tokens, idf)
-
     scored = []
-    for source, content, tokens in corpus:
-        chunk_vec = _tfidf_vector(tokens, idf)
-        score = _cosine(q_vec, chunk_vec)
-        scored.append({"source": source, "content": content, "score": score})
+    for row in rows:
+        try:
+            chunk_vec = json.loads(row["embedding"])
+            if not isinstance(chunk_vec, list) or len(chunk_vec) == 0:
+                continue
+            
+            score = _cosine_similarity(q_vec, chunk_vec)
+            scored.append({
+                "source": row["source"],
+                "content": row["content"],
+                "score": score
+            })
+        except Exception:
+            continue
 
+    # Sort by descending score
     scored.sort(key=lambda x: x["score"], reverse=True)
-    return [c for c in scored[:top_k] if c["score"] > 0]
+    
+    # Filter out low-confidence matches
+    return [c for c in scored[:top_k] if c["score"] > 0.5]
