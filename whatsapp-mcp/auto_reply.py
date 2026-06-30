@@ -1123,15 +1123,27 @@ IMPORTANT OUTPUT FORMAT:
 You MUST think and analyze the situation before replying. Wrap your inner thoughts inside <thought> tags.
 After thinking, wrap the actual message you want to send inside <reply> tags.
 
+MEMORY SYSTEM — AUTO-LEARN:
+If during this conversation you discover a NEW, IMPORTANT fact about anyone (e.g., a birthday, a new job, a preference, a plan, a mood pattern, a relationship detail), you MUST output one or more <remember> tags.
+Only remember facts that are genuinely useful for future conversations. Do NOT remember trivial greetings or small talk.
+You can output multiple <remember> tags if there are multiple facts.
+
 CRITICAL: If the Custom Rules dictate that you should NOT reply to this message, or if it's better to ignore it, you MUST output exactly the word SKIP inside the reply tags. Do NOT apologize or explain inside the reply tags.
 
-Example 1:
+Example 1 (Normal reply + learning a fact):
 <thought>
-User said "k xa?". I should reply with a casual "thikai xu".
+User said they just got a new job at Google. This is important to remember.
+</thought>
+<remember>User got a new job at Google (learned on {current_time})</remember>
+<reply>congrats bro! google ma? kati ramro</reply>
+
+Example 2 (Normal reply, nothing new to learn):
+<thought>
+User said "k xa?". Just a casual greeting, nothing new to remember.
 </thought>
 <reply>thikai xu</reply>
 
-Example 2 (Muted due to rule):
+Example 3 (Muted due to rule):
 <thought>
 Sujal's rule says "never talk about school today". The user is asking about school. I should not reply.
 </thought>
@@ -1147,10 +1159,11 @@ Sujal's rule says "never talk about school today". The user is asking about scho
 
                 print(f"[AI reply raw] {str(raw_reply)[:150]}...")
 
-                # Parse out thought and reply
+                # Parse out thought, reply, and remember tags
                 import re
                 thought_match = re.search(r'<thought>(.*?)</thought>', raw_reply, re.DOTALL)
                 reply_match = re.search(r'<reply>(.*?)</reply>', raw_reply, re.DOTALL)
+                remember_matches = re.findall(r'<remember>(.*?)</remember>', raw_reply, re.DOTALL)
 
                 thought = thought_match.group(1).strip() if thought_match else "No thought provided."
                 
@@ -1158,7 +1171,39 @@ Sujal's rule says "never talk about school today". The user is asking about scho
                     reply = reply_match.group(1).strip()
                 else:
                     # Fallback if AI forgot tags
-                    reply = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL).strip()
+                    cleaned = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL)
+                    cleaned = re.sub(r'<remember>.*?</remember>', '', cleaned, flags=re.DOTALL)
+                    reply = cleaned.strip()
+
+                # AUTO-MEMORY: Save any <remember> facts to knowledge.txt and DB
+                if remember_matches:
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    knowledge_file = os.path.join(base_dir, 'knowledge.txt')
+                    
+                    for fact in remember_matches:
+                        fact = fact.strip()
+                        if len(fact) < 5:
+                            continue  # Skip garbage
+                        
+                        # Append to knowledge.txt
+                        with open(knowledge_file, 'a', encoding='utf-8') as kf:
+                            kf.write(f"\n[Auto-learned | {current_time} | {chat_jid}] {fact}\n")
+                        
+                        # Insert into agent_memory.db knowledge_chunks table
+                        try:
+                            import sqlite3
+                            conn = sqlite3.connect(agent_memory.DB_PATH)
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "INSERT INTO knowledge_chunks (source, content, embedding) VALUES (?, ?, ?)",
+                                (f"auto_learned_{chat_jid}", fact, "[]")
+                            )
+                            conn.commit()
+                            conn.close()
+                        except Exception as e:
+                            print(f"[memory error] Failed to save fact: {e}")
+                        
+                        print(f"[REMEMBERED] {fact[:80]}")
 
                 # Save everything to the AI conversation log
                 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
@@ -1166,6 +1211,8 @@ Sujal's rule says "never talk about school today". The user is asking about scho
                     f.write(f"=== {current_time} | Chat: {chat_jid} ===\n")
                     f.write(f"User: {str(final_payload)}\n")
                     f.write(f"AI Thought: {thought}\n")
+                    if remember_matches:
+                        f.write(f"AI Remembered: {'; '.join(r.strip() for r in remember_matches)}\n")
                     f.write(f"AI Reply: {reply}\n\n")
 
                 if should_send(reply, group_type, chat_jid):
