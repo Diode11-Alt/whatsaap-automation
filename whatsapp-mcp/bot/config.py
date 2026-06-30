@@ -51,28 +51,27 @@ API_KEYS = {
 }
 
 MODELS_TEXT = [
-    ("groq",       "qwen/qwen3.6-27b"),             
-    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   
-    ("groq",       "llama-3.3-70b-versatile"),      
-    ("openrouter", "google/gemini-2.5-flash"),      
-    ("openrouter", "openai/gpt-4o-mini"),           
-    ("openrouter", "anthropic/claude-haiku-4-5"),   
-    ("groq",       "meta-llama/llama-4-scout-17b-16e-instruct"), 
-    ("deepseek",   "deepseek-chat"),
-    ("gemini",     "gemini-1.5-flash"),
-    ("openrouter", "anthropic/claude-3.5-sonnet"),
-    ("openrouter", "openai/gpt-4o"),
-    ("openrouter", "openrouter/auto"),
+    ("openrouter", "google/gemini-2.5-flash"),      # Extremely fast, great at Nepali
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   # Powerful open-source
+    ("openrouter", "openai/gpt-4o-mini"),           # Cheap, smart, fast
+    ("openrouter", "anthropic/claude-3.5-haiku"),   # Super fast Anthropic
+    ("openrouter", "meta-llama/llama-3.3-70b-instruct"), # Best Llama 3 on OpenRouter
+    ("gemini",     "gemini-1.5-flash"),             # Free fallback
+    ("groq",       "llama-3.3-70b-versatile"),      # Free fallback
+    ("deepseek",   "deepseek-chat"),                # DeepSeek native
+    ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium tier
+    ("openrouter", "openai/gpt-4o"),                # Premium tier
+    ("openrouter", "x-ai/grok-2-1212"),             # Premium tier Grok
+    ("openrouter", "openrouter/auto"),              # Auto router fallback
 ]
 
 MODELS_VISION = [
-    ("openrouter", "google/gemini-2.5-flash"),      
-    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   
-    ("openrouter", "openai/gpt-4o-mini"),           
-    ("openrouter", "anthropic/claude-haiku-4-5"),   
-    ("openrouter", "openai/gpt-4o"),
-    ("openrouter", "anthropic/claude-3.5-sonnet"),
-    ("gemini",     "gemini-1.5-flash"),
+    ("openrouter", "google/gemini-2.5-flash"),      # Excellent vision, fast
+    ("openrouter", "openai/gpt-4o-mini"),           # Great and cheap vision
+    ("openrouter", "openai/gpt-4o"),                # Premium vision
+    ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium vision
+    ("openrouter", "qwen/qwen-vl-plus"),            # Qwen Vision specifically
+    ("gemini",     "gemini-1.5-flash"),             # Free tier vision
 ]
 
 # ─── RAG Layer Configuration ─────────────────────────────────────────────────
