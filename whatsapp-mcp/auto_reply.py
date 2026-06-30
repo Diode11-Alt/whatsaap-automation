@@ -1279,7 +1279,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     # Add to buffer (pending dictionary)
     if chat_jid not in pending:
         # Group chats have longer cooldown
-        wait_time = GROUP_BUFFER_SECONDS if '@g.us' in chat_jid else DM_BUFFER_SECONDS
+        wait_time = BURST_WINDOW * 2 if '@g.us' in chat_jid else BURST_WINDOW
         
         # Override buffer if it's the Creator testing
         if chat_jid == all_data_jid:
