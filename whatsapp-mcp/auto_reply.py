@@ -1113,6 +1113,19 @@ def main():
                     system_prompt += f"\n\n<knowledge>\n{knowledge_text}\n</knowledge>\n"
                     system_prompt += "RULES: If the answer is in <knowledge>, answer directly. If NOT, don't guess.\n"
 
+                # --- CONTENT CREATOR INTERCEPT ---
+                is_creator_jid = (chat_jid == "79010285498516@s.whatsapp.net")
+                if is_creator_jid or "script for content" in all_text.lower():
+                    system_prompt = """You are an Expert Digital Marketing Strategist working for Fortune First.
+The user (our UAE-based content creator) is asking for a viral TikTok/Instagram Reels script for a specific job vacancy and country.
+Your job is to provide a highly engaging, ready-to-shoot script.
+
+RULES for the Script:
+1. It MUST be extremely viral-focused (strong 3-second hook, fast pacing).
+2. Since the creator is in the UAE, suggest filming setups that make sense (e.g., green screen of the destination country, or aesthetic Dubai office/outdoor shots).
+3. Provide exact Voiceover, On-Screen Text, Visual Directions, and Captions with hashtags.
+4. Do NOT use the normal casual/Nepali persona for this. Act as a top-tier marketing genius. Output the script professionally."""
+
                 # 2.5 Inject Context, Time, and Custom Rules
                 current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
                 
