@@ -882,8 +882,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			presence = types.ChatPresenceComposing
 			media = types.ChatPresenceMediaText
 		}
-
-		err = client.SendChatPresence(recipientJID, presence, media)
+		err = client.SendChatPresence(context.Background(), recipientJID, presence, media)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
