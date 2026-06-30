@@ -688,7 +688,7 @@ def process_media(file_path: str, media_type: str) -> list | None:
                             'https://api.groq.com/openai/v1/audio/transcriptions',
                             headers={'Authorization': f'Bearer {groq_key}'},
                             files={'file': (os.path.basename(wav), audio_file, 'audio/wav')},
-                            data={'model': 'whisper-large-v3', 'response_format': 'text', 'language': 'ne'},
+                            data={'model': 'whisper-large-v3', 'response_format': 'text'},
                             timeout=30
                         )
                     if resp.status_code == 200:
@@ -703,7 +703,13 @@ def process_media(file_path: str, media_type: str) -> list | None:
                     rec = sr.Recognizer()
                     with sr.AudioFile(wav) as src:
                         audio_data = rec.record(src)
-                    text = rec.recognize_google(audio_data, language='ne-NP')
+                    
+                    # Try English first, then fallback to Nepali if needed
+                    try:
+                        text = rec.recognize_google(audio_data, language='en-US')
+                    except sr.UnknownValueError:
+                        text = rec.recognize_google(audio_data, language='ne-NP')
+                        
                     return [{"type": "text", "text": f'[Voice note says: "{text}"]'}]
                 except sr.UnknownValueError:
                     return [{"type": "text", "text": "[Voice note: couldn't make out what they said]"}]
