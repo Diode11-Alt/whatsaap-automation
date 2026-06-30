@@ -154,11 +154,20 @@ SUJAL'S EXACT TYPING STYLE (copy this, DO NOT write like a textbook):
 - Typos are normal and INTENTIONAL: 'kniyes', 'buwa', 'tya', 'aaye', 'boli sakis'
 - NEVER writes: 'thik cha, ramro kura' or 'k garna plan cha' — these are AI-speak
 
+LANGUAGE INTELLIGENCE — CRITICAL:
+- You UNDERSTAND all scripts: Romanized Nepali (k xa, huss, xa, xu), Devanagari (नेपाली मा), Hindi, English, and any mix.
+- If someone writes in Devanagari Nepali (e.g. 'के छ?' or 'कस्तो छ?'), understand it fully and reply in casual Romanized Nepali (e.g. 'thikai xu').
+- If someone writes in Hindi Devanagari, understand and reply in the appropriate mix.
+- ALWAYS reply in the SCRIPT the person uses, unless they are Kanxo or a close Nepali friend, in which case use Romanized Nepali.
+- For voice notes: the transcription will be in [Voice note says: "..."] — read and reply to it naturally as if you heard it.
+- For images/videos: describe briefly what you see and react naturally as Sujal would.
+
 CORRECT EXAMPLE REPLIES:
 - To 'k gardai xas': reply 'kaam gardai xu' or 'ntg bro, ta k'
 - To 'k xa': reply 'thikai xu' or 'huss'
 - To 'I miss you': reply 'i miss you too sani 😭'
 - To 'Hu': reply 'k vayo?' gently
+- To 'के छ?' (Devanagari): reply 'thikai xu ta k'
 - WRONG replies (NEVER write these): 'Thik xa, ramro kura! K garna plan cha?' / 'Sabai thik cha, timi kasto hau?' / 'Hey! What's up?'
 """
 
@@ -617,17 +626,36 @@ def process_media(file_path: str, media_type: str) -> list | None:
             wav = file_path + ".wav"
             subprocess.run(["ffmpeg", "-y", "-i", file_path, wav],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(wav):
-                rec = sr.Recognizer()
-                with sr.AudioFile(wav) as src:
-                    audio_data = rec.record(src)
+            # Try Groq Whisper first (supports Nepali + all languages)
+            groq_key = os.environ.get("GROQ_API_KEY", "")
+            if groq_key and os.path.exists(wav):
                 try:
-                    text = rec.recognize_google(audio_data)
-                    return [{"type": "text", "text": f"[Voice note says: \"{text}\"]"}]
+                    with open(wav, 'rb') as audio_file:
+                        resp = requests.post(
+                            'https://api.groq.com/openai/v1/audio/transcriptions',
+                            headers={'Authorization': f'Bearer {groq_key}'},
+                            files={'file': (os.path.basename(wav), audio_file, 'audio/wav')},
+                            data={'model': 'whisper-large-v3', 'response_format': 'text', 'language': 'ne'},
+                            timeout=30
+                        )
+                    if resp.status_code == 200:
+                        text = resp.text.strip()
+                        print(f"[whisper] Transcribed: {text[:80]}")
+                        return [{"type": "text", "text": f'[Voice note says: "{text}"]'}]
+                except Exception as e:
+                    print(f"[whisper error] {e}")
+            # Fallback: Google Speech Recognition
+            if os.path.exists(wav):
+                try:
+                    rec = sr.Recognizer()
+                    with sr.AudioFile(wav) as src:
+                        audio_data = rec.record(src)
+                    text = rec.recognize_google(audio_data, language='ne-NP')
+                    return [{"type": "text", "text": f'[Voice note says: "{text}"]'}]
                 except sr.UnknownValueError:
                     return [{"type": "text", "text": "[Voice note: couldn't make out what they said]"}]
                 except sr.RequestError:
-                    return [{"type": "text", "text": "[Voice note: transcription service down]"}]
+                    return [{"type": "text", "text": "[Voice note: transcription service unavailable]"}]
     except Exception as e:
         print(f"[media process error] {e}")
     return None
@@ -635,10 +663,20 @@ def process_media(file_path: str, media_type: str) -> list | None:
 
 # ─── AI Reply ─────────────────────────────────────────────────────────────────
 
+# Models that support vision (image/video)
+VISION_MODELS = {
+    ("openrouter", "google/gemini-2.5-flash"),
+    ("openrouter", "openai/gpt-4o"),
+    ("openrouter", "openai/gpt-4o-mini"),
+    ("openrouter", "anthropic/claude-haiku-4-5"),
+    ("openrouter", "anthropic/claude-3.5-sonnet"),
+    ("gemini", "gemini-1.5-flash"),
+}
+
 API_URLS = {
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-    "groq": "https://api.groq.com/openai/v1/chat/completions",
-    "deepseek": "https://api.deepseek.com/v1/chat/completions"
+    "groq":       "https://api.groq.com/openai/v1/chat/completions",
+    "deepseek":   "https://api.deepseek.com/v1/chat/completions"
 }
 
 API_KEYS = {
@@ -661,62 +699,76 @@ API_KEYS = {
     ] if k]
 }
 
-MODELS = [
-    ("groq", "llama3-70b-8192"),           # Fast, free, primary
-    ("deepseek", "deepseek-chat"),          # Cheap, smart, secondary
-    ("gemini", "gemini-1.5-flash"),
-    ("openrouter", "openai/gpt-4o-mini"),
+# Default model order (text-only) — confirmed working order
+MODELS_TEXT = [
+    ("openrouter", "google/gemini-2.5-flash"),   # ✅ fast, cheap, multilingual, primary
+    ("openrouter", "openai/gpt-4o-mini"),         # ✅ reliable fallback
+    ("openrouter", "anthropic/claude-haiku-4-5"), # ✅ good quality
+    ("groq",       "llama3-70b-8192"),            # fast if key works
+    ("deepseek",   "deepseek-chat"),              # if has balance
+    ("gemini",     "gemini-1.5-flash"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("openrouter", "openai/gpt-4o"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct"),
-    ("openrouter", "openrouter/free"),
-    ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
-    ("openrouter", "nousresearch/hermes-3-llama-3.1-405b:free"),
-    ("openrouter", "openrouter/auto")
+    ("openrouter", "openrouter/auto"),
+]
+
+# Vision model order (for image/video messages)
+MODELS_VISION = [
+    ("openrouter", "google/gemini-2.5-flash"),   # ✅ best multimodal, cheap
+    ("openrouter", "openai/gpt-4o-mini"),         # ✅ vision capable
+    ("openrouter", "anthropic/claude-haiku-4-5"), # ✅ vision capable
+    ("openrouter", "openai/gpt-4o"),
+    ("openrouter", "anthropic/claude-3.5-sonnet"),
+    ("gemini",     "gemini-1.5-flash"),
 ]
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
-                 new_message_payload) -> str | None:
-    
-    for provider, model in MODELS:
+                 new_message_payload, has_media: bool = False) -> str | None:
+    """Call AI with automatic model fallback. Routes to vision models when has_media=True."""
+    model_list = MODELS_VISION if has_media else MODELS_TEXT
+
+    for provider, model in model_list:
         keys_to_try = API_KEYS.get(provider, [])
-        
+        if not keys_to_try:
+            continue
+
         for api_key in keys_to_try:
             try:
                 if provider == "gemini":
                     # Native Gemini Format
                     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                     headers = {"Content-Type": "application/json"}
-                    
+
                     contents = []
                     for msg in chat_history:
                         role = "model" if msg["role"] == "assistant" else "user"
                         contents.append({"role": role, "parts": [{"text": str(msg["content"])}]})
-                    
-                    # Append new user message
                     contents.append({"role": "user", "parts": [{"text": str(new_message_payload)}]})
-                    
+
                     payload = {
                         "contents": contents,
                         "systemInstruction": {"parts": [{"text": system_prompt}]},
                         "generationConfig": {"maxOutputTokens": 500}
                     }
-                    
-                    resp = requests.post(api_url, headers=headers, json=payload, timeout=20)
-                    
+
+                    resp = requests.post(api_url, headers=headers, json=payload, timeout=25)
                     if resp.status_code in [429, 402, 403, 404]:
-                        print(f"[fallback] gemini Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
+                        print(f"[fallback] gemini {api_key[:12]}... hit {resp.status_code}. Next...")
                         continue
-                        
                     resp.raise_for_status()
-                    data = resp.json()
-                    
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    
+                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
                 else:
-                    # OpenRouter Format
+                    # OpenRouter / Groq / DeepSeek — all OpenAI-compatible
                     messages = [{"role": "system", "content": system_prompt}] + chat_history
-                    messages.append({"role": "user", "content": new_message_payload})
+
+                    # For vision models, pass structured content; for text models, stringify
+                    if has_media and isinstance(new_message_payload, list):
+                        messages.append({"role": "user", "content": new_message_payload})
+                    else:
+                        messages.append({"role": "user", "content": str(new_message_payload)})
+
                     api_url = API_URLS[provider]
                     headers = {
                         "Authorization": f"Bearer {api_key}",
@@ -726,21 +778,21 @@ def get_ai_reply(system_prompt: str, chat_history: list[dict],
                         api_url,
                         headers=headers,
                         json={"model": model, "messages": messages, "max_tokens": 500},
-                        timeout=20,
+                        timeout=25,
                     )
-                    if resp.status_code in [429, 402, 403, 404]:
-                        print(f"[fallback] {provider} Key {api_key[:12]}... hit {resp.status_code} for {model}. Trying next key...")
+                    if resp.status_code in [429, 402, 403, 404, 401]:
+                        print(f"[fallback] {provider}/{model} {api_key[:12]}... hit {resp.status_code}. Next...")
                         continue
 
                     resp.raise_for_status()
                     return resp.json()["choices"][0]["message"]["content"].strip()
 
             except Exception as e:
-                print(f"[API Error] {model} with key {api_key[:12]}... HTTP {getattr(e.response, 'status_code', '')}: {getattr(e.response, 'text', str(e))}")
-                continue # Try next key
-        
-        print(f"[model fallback] Exhausted all {provider} keys for {model}. Trying next model...")
-    
+                print(f"[API Error] {provider}/{model} {api_key[:12]}...: {str(e)[:80]}")
+                continue
+
+        print(f"[model fallback] Exhausted all keys for {provider}/{model}. Trying next model...")
+
     return None
 
 
@@ -985,9 +1037,15 @@ def main():
                     send_whatsapp_message(chat_jid, deflect)
                     continue
 
+                # Detect if this burst has media (image/audio/video)
+                has_media_content = any(
+                    p.get("type") == "image_url" for p in combined_parts
+                )
+
                 # Simplify to string if pure single text msg
                 if len(combined_parts) == 1 and combined_parts[0]["type"] == "text":
                     final_payload = combined_parts[0]["text"]
+                    has_media_content = False
                 else:
                     final_payload = combined_parts
 
@@ -1014,13 +1072,14 @@ Situational Analysis: Before answering, deeply analyze the chat history. Think a
                 # 3. Save incoming user message
                 agent_memory.save_message(chat_jid, "user", str(final_payload))
 
-                reply = get_ai_reply(system_prompt, chat_history, final_payload)
+                reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content)
                 print(f"[AI reply raw] {str(reply)[:100]}")
 
                 if should_send(reply, group_type, chat_jid):
                     # 4. Save outgoing assistant reply
                     agent_memory.save_message(chat_jid, "assistant", reply.strip())
                     send_whatsapp_message(chat_jid, reply.strip())
+                    print(f"[sent] -> {chat_jid}: {reply.strip()[:60]!r}")
                 else:
                     print(f"[skip reply] group={group_type} | reply={reply!r}")
 
