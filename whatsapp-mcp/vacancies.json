@@ -1,0 +1,38 @@
+[
+    {
+        "Country": "Bulgaria",
+        "Employer": "Top European Logistics",
+        "Job Title": "Heavy Truck Driver",
+        "Salary": "€2000 - €3500",
+        "Benefits": "Health insurance, Paid leave",
+        "Working Hours": "40 hours/week",
+        "Accommodation": "Free",
+        "Food": "Included",
+        "Visa Type": "Work Permit",
+        "Experience": "2+ years international driving",
+        "Gender": "Male",
+        "Age": "25-45",
+        "Language": "Basic English",
+        "Deadline": "2025-08-01",
+        "Urgency": "High",
+        "Requirements": "Valid heavy vehicle license, clean record"
+    },
+    {
+        "Country": "Bulgaria",
+        "Employer": "EuroHealth Clinics",
+        "Job Title": "Registered Nurse",
+        "Salary": "€1800 - €2500",
+        "Benefits": "Medical insurance, annual ticket",
+        "Working Hours": "Shift based",
+        "Accommodation": "Free",
+        "Food": "Subsidized",
+        "Visa Type": "Work Permit",
+        "Experience": "3 years clinical",
+        "Gender": "Any",
+        "Age": "22-40",
+        "Language": "English fluent",
+        "Deadline": "2025-07-15",
+        "Urgency": "Medium",
+        "Requirements": "Nursing degree, active license"
+    }
+]

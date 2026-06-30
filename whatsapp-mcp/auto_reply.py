@@ -433,6 +433,12 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
         state['general_instructions'] = []
         return state, "All custom AI rules have been cleared."
 
+    if t in ['generate marketing', '!generate marketing']:
+        import subprocess
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'marketing_agent.py')
+        subprocess.Popen(['python3', script_path])
+        return state, "MARKETING_GENERATION_STARTED"
+
     # --- Any other command is treated as a general instruction for the AI ---
     # e.g., "always talk in english", "be rude", "don't reply kanxo if she says ok"
     if 'general_instructions' not in state:
