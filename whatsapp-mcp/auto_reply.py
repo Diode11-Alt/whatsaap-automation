@@ -163,7 +163,7 @@ async def pending_messages_loop():
                             send_presence(chat_jid, "paused")
                         else:
                             # Standard Text Message
-                            typing_delay = max(0.5, min(len(reply) / 15.0, 5.0))
+                            typing_delay = max(4.0, min(len(reply) / 10.0, 10.0))
                             
                             print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
                             send_presence(chat_jid, "typing")

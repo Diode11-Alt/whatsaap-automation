@@ -13,10 +13,12 @@ def generate_voice_note(text: str, model_name: str = "google/gemini-3.1-flash-tt
     if not text.strip():
         return None
         
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
+    from bot.config import API_KEYS
+    openrouter_keys = API_KEYS.get("openrouter", [])
+    if not openrouter_keys:
         print("[tts] No OPENROUTER_API_KEY found.")
         return None
+    api_key = openrouter_keys[0]
         
     print(f"[tts] Generating voice note for: {text[:30]}...")
     

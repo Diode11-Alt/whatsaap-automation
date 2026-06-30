@@ -26,7 +26,7 @@ GROUP_CONFIG = {
 # ─── Timing ──────────────────────────────────────────────────────────────────
 REPLY_DELAY_MIN   = 5    # seconds — minimum wait before replying
 REPLY_DELAY_MAX   = 10   # seconds — maximum wait before replying
-BURST_WINDOW      = 3    # seconds — collect msgs in same chat within this window
+BURST_WINDOW      = 6    # seconds — collect msgs in same chat within this window
 
 # ─── AI API Keys & Models ────────────────────────────────────────────────────
 API_KEYS = {
