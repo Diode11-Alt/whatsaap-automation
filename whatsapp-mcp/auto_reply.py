@@ -1202,6 +1202,8 @@ Sujal's rule says "never talk about school today". The user is asking about scho
                     override_models = [
                         ("openrouter", "anthropic/claude-3.5-sonnet"),
                         ("openrouter", "openai/gpt-4o"),
+                        ("groq", "llama-3.3-70b-versatile"),
+                        ("openrouter", "google/gemini-2.5-flash"),
                         ("openrouter", "qwen/qwen-2.5-72b-instruct")
                     ]
 
