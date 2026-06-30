@@ -238,7 +238,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
         
         log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if cmd_response:
             bot_state = new_state
