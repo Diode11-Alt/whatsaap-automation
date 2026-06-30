@@ -1,15 +1,15 @@
+
 import sqlite3
 import os
 import json
 import math
-import requests
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent_memory.db')
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -40,35 +40,30 @@ def init_db():
 # Initialize tables on load
 init_db()
 
-def embed(text: str) -> list[float]:
-    if not OPENAI_API_KEY:
-        print("[warn] OPENAI_API_KEY not set. Returning empty embedding.")
-        return [0.0] * 1536 # text-embedding-3-small dimension
-        
-    url = "https://api.openai.com/v1/embeddings"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "text-embedding-3-small",
-        "input": text
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=10)
-        resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
-    except Exception as e:
-        print(f"[error] Failed to fetch embedding: {e}")
-        return [0.0] * 1536
+# ─── Local TF-IDF based retrieval (no external API needed) ─────────────────────
+# This works offline and is sufficient for small knowledge bases (<1000 chunks).
 
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r'\b\w+\b', text.lower())
+
+def _tfidf_vector(tokens: list[str], idf: dict[str, float]) -> dict[str, float]:
+    tf: dict[str, float] = {}
+    for t in tokens:
+        tf[t] = tf.get(t, 0) + 1
+    total = len(tokens) or 1
+    return {t: (count / total) * idf.get(t, 1.0) for t, count in tf.items()}
+
+def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
+    common = set(a) & set(b)
+    if not common:
+        return 0.0
+    dot = sum(a[t] * b[t] for t in common)
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
 
 def save_message(user_id: str, role: str, content: str):
     conn = sqlite3.connect(DB_PATH)
@@ -80,6 +75,7 @@ def save_message(user_id: str, role: str, content: str):
     conn.commit()
     conn.close()
 
+
 def get_history(user_id: str, limit: int = 16) -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -90,35 +86,43 @@ def get_history(user_id: str, limit: int = 16) -> list[dict]:
     )
     rows = cursor.fetchall()
     conn.close()
-    
+
     history = [{"role": r["role"], "content": r["content"]} for r in rows]
-    return history[::-1] # return oldest to newest
+    return history[::-1]  # oldest to newest
+
 
 def retrieve_knowledge(query: str, top_k: int = 4) -> list[dict]:
-    query_vector = embed(query)
-    
+    """Local TF-IDF retrieval — no external API required."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT source, content, embedding FROM knowledge_chunks")
+    cursor.execute("SELECT source, content FROM knowledge_chunks")
     rows = cursor.fetchall()
     conn.close()
-    
+
     if not rows:
         return []
-        
+
+    # Build corpus token lists
+    corpus = [(row["source"], row["content"], _tokenize(row["content"])) for row in rows]
+
+    # Compute IDF over corpus
+    N = len(corpus)
+    df: dict[str, int] = {}
+    for _, _, tokens in corpus:
+        for t in set(tokens):
+            df[t] = df.get(t, 0) + 1
+    idf = {t: math.log(N / freq + 1) for t, freq in df.items()}
+
+    # Score query against each chunk
+    q_tokens = _tokenize(query)
+    q_vec = _tfidf_vector(q_tokens, idf)
+
     scored = []
-    for row in rows:
-        try:
-            chunk_vector = json.loads(row["embedding"])
-            score = cosine_similarity(query_vector, chunk_vector)
-            scored.append({
-                "source": row["source"],
-                "content": row["content"],
-                "score": score
-            })
-        except Exception:
-            continue
-            
+    for source, content, tokens in corpus:
+        chunk_vec = _tfidf_vector(tokens, idf)
+        score = _cosine(q_vec, chunk_vec)
+        scored.append({"source": source, "content": content, "score": score})
+
     scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored[:top_k]
+    return [c for c in scored[:top_k] if c["score"] > 0]

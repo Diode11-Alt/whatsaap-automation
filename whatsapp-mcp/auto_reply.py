@@ -554,12 +554,20 @@ def process_media(file_path: str, media_type: str) -> list | None:
 # ─── AI Reply ─────────────────────────────────────────────────────────────────
 
 API_URLS = {
-    "openrouter": "https://openrouter.ai/api/v1/chat/completions"
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+    "groq": "https://api.groq.com/openai/v1/chat/completions",
+    "deepseek": "https://api.deepseek.com/v1/chat/completions"
 }
 
 API_KEYS = {
     "gemini": [k for k in [
         os.environ.get("GEMINI_API_KEY")
+    ] if k],
+    "groq": [k for k in [
+        os.environ.get("GROQ_API_KEY")
+    ] if k],
+    "deepseek": [k for k in [
+        os.environ.get("DEEPSEEK_API_KEY")
     ] if k],
     "openrouter": [k for k in [
         os.environ.get("OPENROUTER_API_KEY_1"),
@@ -572,6 +580,8 @@ API_KEYS = {
 }
 
 MODELS = [
+    ("groq", "llama3-70b-8192"),           # Fast, free, primary
+    ("deepseek", "deepseek-chat"),          # Cheap, smart, secondary
     ("gemini", "gemini-1.5-flash"),
     ("openrouter", "openai/gpt-4o-mini"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
@@ -882,6 +892,16 @@ def main():
                     knowledge_text = "\n\n".join([f"[{c['source']}] {c['content']}" for c in top_chunks])
                     system_prompt += f"\n\n<knowledge>\n{knowledge_text}\n</knowledge>\n"
                     system_prompt += "RULES: If the answer is in <knowledge>, answer directly. If NOT, don't guess.\n"
+
+                # 2.5 Inject Context & Time
+                current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+                system_prompt += f"""
+
+<context>
+Current Time & Date: {current_time}
+Situational Analysis: Before answering, deeply analyze the chat history. Think about why the user sent this message right now, the time of day, the context of the situation, and how you should best react.
+</context>
+"""
 
                 # 3. Save incoming user message
                 agent_memory.save_message(chat_jid, "user", str(final_payload))
