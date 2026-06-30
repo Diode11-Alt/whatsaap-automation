@@ -370,7 +370,7 @@ def load_bot_state():
             "muted_jids": [],        # JIDs to never reply to
             "reply_only_jids": [],   # If non-empty, ONLY reply to these
             "mute_all_groups": False, # Stop replying to all groups
-            "general_instruction": "" # Any custom instructions provided
+            "general_instructions": [] # List of custom instructions provided
         }
 
 def save_bot_state(state):
@@ -419,13 +419,19 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
     if t in ['status', 'state', 'info']:
         muted = state.get('muted_jids', [])
         g_mute = state.get('mute_all_groups', False)
-        instr = state.get('general_instruction', '')
-        return state, f"Active: {state['active']}. Group Mute: {g_mute}. Muted JIDs: {muted or 'none'}. Custom Instruction: {instr}"
+        instr = state.get('general_instructions', [])
+        return state, f"Active: {state['active']}. Group Mute: {g_mute}. Muted JIDs: {muted or 'none'}. Custom Rules: {len(instr)}"
     
+    if t in ['clear rules', 'clear instructions', 'reset rules']:
+        state['general_instructions'] = []
+        return state, "All custom AI rules have been cleared."
+
     # --- Any other command is treated as a general instruction for the AI ---
     # e.g., "always talk in english", "be rude", "don't reply kanxo if she says ok"
-    state['general_instruction'] = text.strip()
-    return state, f"Understood! New AI rule applied: '{text.strip()}'"
+    if 'general_instructions' not in state:
+        state['general_instructions'] = []
+    state['general_instructions'].append(text.strip())
+    return state, f"Understood! New AI rule added:\n{text.strip()}\n\n(Send 'clear rules' to remove all)"
 
 # ─── Proactive Auto-Texting Routine Engine ────────────────────────────────────
 
@@ -1080,23 +1086,59 @@ def main():
                 # 2.5 Inject Context, Time, and Custom Rules
                 current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
                 
-                custom_rule = ""
-                if bot_state.get('general_instruction'):
-                    custom_rule = f"\nCRITICAL CUSTOM RULE FROM SUJAL (Follow strictly): {bot_state['general_instruction']}\n"
+                custom_rule_block = ""
+                instr_list = bot_state.get('general_instructions', [])
+                if instr_list:
+                    rules_str = "\n".join(f"- {r}" for r in instr_list)
+                    custom_rule_block = f"\nCRITICAL CUSTOM RULES FROM SUJAL (Follow strictly!):\n{rules_str}\n"
 
                 system_prompt += f"""
-{custom_rule}
+{custom_rule_block}
 <context>
 Current Time & Date: {current_time}
 Situational Analysis: Before answering, deeply analyze the chat history. Think about why the user sent this message right now, the time of day, the context of the situation, and how you should best react.
 </context>
+
+IMPORTANT OUTPUT FORMAT:
+You MUST think and analyze the situation before replying. Wrap your inner thoughts inside <thought> tags.
+After thinking, wrap the actual message you want to send inside <reply> tags.
+
+Example:
+<thought>
+User said "k xa?". I should reply with a casual "thikai xu".
+</thought>
+<reply>thikai xu</reply>
 """
 
                 # 3. Save incoming user message
                 agent_memory.save_message(chat_jid, "user", str(final_payload))
 
-                reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content)
-                print(f"[AI reply raw] {str(reply)[:100]}")
+                raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content)
+                if not raw_reply:
+                    continue
+
+                print(f"[AI reply raw] {str(raw_reply)[:150]}...")
+
+                # Parse out thought and reply
+                import re
+                thought_match = re.search(r'<thought>(.*?)</thought>', raw_reply, re.DOTALL)
+                reply_match = re.search(r'<reply>(.*?)</reply>', raw_reply, re.DOTALL)
+
+                thought = thought_match.group(1).strip() if thought_match else "No thought provided."
+                
+                if reply_match:
+                    reply = reply_match.group(1).strip()
+                else:
+                    # Fallback if AI forgot tags
+                    reply = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL).strip()
+
+                # Save everything to the AI conversation log
+                log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"=== {current_time} | Chat: {chat_jid} ===\n")
+                    f.write(f"User: {str(final_payload)}\n")
+                    f.write(f"AI Thought: {thought}\n")
+                    f.write(f"AI Reply: {reply}\n\n")
 
                 if should_send(reply, group_type, chat_jid):
                     # 4. Save outgoing assistant reply
