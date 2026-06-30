@@ -111,6 +111,34 @@ def process_auto_routines():
                     reply = get_ai_reply(full_prompt, chat_history, "[SYSTEM: Execute routine]")
                     
                     if reply and should_send(reply, "PERSONAL", chat_jid):
-                        send_whatsapp_message(chat_jid, reply.strip())
+                        import re
+                        from bot.bridge_client import send_presence
+                        
+                        reply = reply.strip()
+                        # Parse output tags (remove thought)
+                        cleaned = re.sub(r'<thought>.*?</thought>', '', reply, flags=re.DOTALL)
+                        reply = cleaned.strip()
+                        
+                        voice_match = re.search(r'<voice>(.*?)</voice>', reply, re.DOTALL | re.IGNORECASE)
+                        
+                        if voice_match:
+                            voice_text = voice_match.group(1).strip()
+                            print(f"[routine recording...] {chat_jid}")
+                            send_presence(chat_jid, "recording")
+                            
+                            from bot.tts_client import generate_voice_note
+                            audio_path = generate_voice_note(voice_text)
+                            
+                            if audio_path:
+                                send_whatsapp_message(chat_jid, "", media_path=audio_path)
+                                print(f"[sent routine voice note] -> {chat_jid}: {voice_text[:60]!r}")
+                            else:
+                                send_whatsapp_message(chat_jid, voice_text)
+                                print(f"[sent routine voice fallback] -> {chat_jid}: {voice_text[:60]!r}")
+                                
+                            send_presence(chat_jid, "paused")
+                        else:
+                            send_whatsapp_message(chat_jid, reply)
+                            
                         state[r_id] = today_str
                         save_routines_state(state)

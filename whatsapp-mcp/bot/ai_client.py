@@ -71,7 +71,8 @@ API_URLS = {
 }
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
-                 new_message_payload, has_media: bool = False, force_model_list: list = None) -> str | None:
+                 new_message_payload, has_media: bool = False, force_model_list: list = None,
+                 image_base64_list: list[str] = None) -> str | None:
     """Call AI with automatic model fallback. Routes to vision models when has_media=True."""
     
     models_to_try = force_model_list if force_model_list else (MODELS_VISION if has_media else MODELS_TEXT)
@@ -79,7 +80,15 @@ def get_ai_reply(system_prompt: str, chat_history: list[dict],
     # Standardize system prompt
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(chat_history)
-    messages.append({"role": "user", "content": new_message_payload})
+    
+    # Handle multimodal input
+    if image_base64_list:
+        content_array = [{"type": "text", "text": str(new_message_payload)}]
+        for img_b64 in image_base64_list:
+            content_array.append({"type": "image_url", "image_url": {"url": img_b64}})
+        messages.append({"role": "user", "content": content_array})
+    else:
+        messages.append({"role": "user", "content": new_message_payload})
 
     for provider, model in models_to_try:
         keys = API_KEYS.get(provider, [])
@@ -96,10 +105,14 @@ def get_ai_reply(system_prompt: str, chat_history: list[dict],
                     gemini_msgs = []
                     for m in messages:
                         if m["role"] == "system":
-                            # System instructions are handled differently in Gemini
                             pass
                         elif m["role"] == "user":
-                            gemini_msgs.append({"role": "user", "parts": [{"text": m["content"]}]})
+                            # Simplistic conversion: ignores images for native gemini API for now, since OpenRouter handles vision better for our setup
+                            if isinstance(m["content"], list):
+                                text_only = " ".join([c["text"] for c in m["content"] if c["type"] == "text"])
+                                gemini_msgs.append({"role": "user", "parts": [{"text": text_only}]})
+                            else:
+                                gemini_msgs.append({"role": "user", "parts": [{"text": m["content"]}]})
                         else:
                             gemini_msgs.append({"role": "model", "parts": [{"text": m["content"]}]})
 

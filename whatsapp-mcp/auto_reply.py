@@ -25,6 +25,7 @@ from bot.state import load_bot_state, save_bot_state, parse_command
 from bot.knowledge import load_knowledge
 from bot.memory.retrieval import get_context_for_reply, embed_and_store
 from bot.memory.facts_store import get_learned_context, extract_and_store_facts, store_direct_fact
+from bot.vision import encode_image
 
 # Global State
 bot_state = load_bot_state()
@@ -95,7 +96,15 @@ async def pending_messages_loop():
 
                     # 2. Get AI Reply
                     chat_history = get_chat_history(chat_jid, limit=15)
-                    raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media)
+                    
+                    image_base64_list = []
+                    for m in unique_msgs:
+                        if m.get('local_image_path'):
+                            b64 = encode_image(m['local_image_path'])
+                            if b64:
+                                image_base64_list.append(b64)
+                                
+                    raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media, image_base64_list=image_base64_list)
                     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
                     if raw_reply is None:
@@ -316,10 +325,17 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         else:
             content = "[User sent a voice note but download failed]"
     
+    local_image_path = None
     if media_type == 'video':
         content = "[User sent a video]"
     elif media_type == 'image':
-        content = "[User sent an image]"
+        print(f"[image] Downloading image {msg_id} for vision processing...")
+        local_path = download_media(msg_id, chat_jid)
+        if local_path:
+            local_image_path = local_path
+            content = "[User sent an image. Process it using the provided vision input]"
+        else:
+            content = "[User sent an image, but it failed to download]"
     elif media_type == 'document':
         content = f"[User sent a document: {filename}]"
 
@@ -341,7 +357,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         'sender': sender,
         'content': content,
         'media_type': media_type,
-        'filename': filename
+        'filename': filename,
+        'local_image_path': local_image_path
     })
     
     print(f"[buffer] Added msg from {sender} in {chat_jid}. Firing in {pending[chat_jid]['fire_at'] - time.time():.1f}s")
