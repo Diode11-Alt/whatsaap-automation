@@ -1146,6 +1146,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+def inject_instructions(prompt: str, instructions: list) -> str:
+    if not instructions:
+        return prompt
+    return prompt + "\n\nCRITICAL RULES FOR YOU:\n" + "\n".join(f"- {inst}" for inst in instructions)
+
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     global bot_state, bot_active, all_data_jid
