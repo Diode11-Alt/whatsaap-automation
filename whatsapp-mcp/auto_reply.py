@@ -234,12 +234,17 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ignored"}
             
         new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
+        
+        log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_conversations.log')
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         if cmd_response:
             bot_state = new_state
             bot_active = bot_state['active']
             save_bot_state(bot_state)
             print(f"[COMMAND] {content!r} → {cmd_response}")
             
+            final_reply = ""
             if cmd_response.startswith("AI_CONFIRM_RULE:"):
                 rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
                 prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
@@ -247,15 +252,27 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                 if conf_reply:
                     clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
                     clean_conf = re.sub(r'<reply>(.*?)</reply>', r' ', clean_conf, flags=re.DOTALL).strip()
-                    send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
+                    final_reply = f"🤖 {clean_conf}"
                 else:
-                    send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
+                    final_reply = f"🤖 Huss boss, noted the rule: {rule_text}"
             else:
-                send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
+                final_reply = f"🤖 {cmd_response}"
+                
+            send_whatsapp_message(chat_jid, final_reply)
+            
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"=== {current_time} | Chat: {chat_jid} (Command) ===\n")
+                f.write(f"User: {content}\n")
+                f.write(f"AI Reply: {final_reply}\n\n")
         else:
             # If it's not a recognized command, store it directly into long-term memory facts
             store_direct_fact(all_data_jid, content.strip())
             send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"=== {current_time} | Chat: {chat_jid} (Memo) ===\n")
+                f.write(f"User: {content}\n")
+                f.write(f"AI Reply: 🤖 Memo saved to long-term memory.\n\n")
+                
         return {"status": "ok"}
         
     if is_from_me:
