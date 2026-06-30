@@ -782,9 +782,12 @@ MODELS_VISION = [
 ]
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],
-                 new_message_payload, has_media: bool = False) -> str | None:
+                 new_message_payload, has_media: bool = False, force_model_list: list = None) -> str | None:
     """Call AI with automatic model fallback. Routes to vision models when has_media=True."""
-    model_list = MODELS_VISION if has_media else MODELS_TEXT
+    if force_model_list:
+        model_list = force_model_list
+    else:
+        model_list = MODELS_VISION if has_media else MODELS_TEXT
 
     for provider, model in model_list:
         keys_to_try = API_KEYS.get(provider, [])
@@ -1193,7 +1196,16 @@ Sujal's rule says "never talk about school today". The user is asking about scho
                 # 3. Save incoming user message
                 agent_memory.save_message(chat_jid, "user", str(final_payload))
 
-                raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content)
+                # If this is the content creator, force the best models available (Claude 3.5 Sonnet / GPT-4o)
+                override_models = None
+                if is_creator_jid or "script for content" in all_text.lower():
+                    override_models = [
+                        ("openrouter", "anthropic/claude-3.5-sonnet"),
+                        ("openrouter", "openai/gpt-4o"),
+                        ("openrouter", "qwen/qwen-2.5-72b-instruct")
+                    ]
+
+                raw_reply = get_ai_reply(system_prompt, chat_history, final_payload, has_media=has_media_content, force_model_list=override_models)
                 if not raw_reply:
                     continue
 
