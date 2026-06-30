@@ -50,8 +50,11 @@ init_db()
 def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     """Get vector embedding using OpenRouter API with exponential backoff for rate limits."""
     import time
+    from bot.config import API_KEYS
     
-    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+    openrouter_keys = API_KEYS.get("openrouter", [])
+    OPENROUTER_API_KEY = openrouter_keys[0] if openrouter_keys else ""
+    
     if not OPENROUTER_API_KEY:
         print("Warning: OPENROUTER_API_KEY not set for embeddings.")
         return []
