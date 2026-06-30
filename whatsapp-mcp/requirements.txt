@@ -3,3 +3,4 @@ SpeechRecognition
 python-dotenv
 fastapi
 uvicorn
+pydub

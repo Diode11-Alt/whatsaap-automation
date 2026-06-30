@@ -16,6 +16,8 @@ Improvements over v1:
 
 import sqlite3
 import time
+from pydub import AudioSegment
+import math
 
 from fastapi import FastAPI, Request, BackgroundTasks
 import uvicorn
@@ -705,42 +707,72 @@ def process_media(file_path: str, media_type: str) -> list | None:
             wav = file_path + ".wav"
             subprocess.run(["ffmpeg", "-y", "-i", file_path, wav],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Try Groq Whisper first (supports Nepali + all languages)
-            groq_key = os.environ.get("GROQ_API_KEY", "")
-            if groq_key and os.path.exists(wav):
-                try:
-                    with open(wav, 'rb') as audio_file:
-                        resp = requests.post(
-                            'https://api.groq.com/openai/v1/audio/transcriptions',
-                            headers={'Authorization': f'Bearer {groq_key}'},
-                            files={'file': (os.path.basename(wav), audio_file, 'audio/wav')},
-                            data={'model': 'whisper-large-v3', 'response_format': 'text'},
-                            timeout=30
-                        )
-                    if resp.status_code == 200:
-                        text = resp.text.strip()
-                        print(f"[whisper] Transcribed: {text[:80]}")
-                        return [{"type": "text", "text": f'[Voice note says: "{text}"]'}]
-                except Exception as e:
-                    print(f"[whisper error] {e}")
-            # Fallback: Google Speech Recognition
-            if os.path.exists(wav):
-                try:
-                    rec = sr.Recognizer()
-                    with sr.AudioFile(wav) as src:
-                        audio_data = rec.record(src)
+            
+            if not os.path.exists(wav):
+                return [{"type": "text", "text": "[Voice note: failed to convert audio]"}]
+                
+            try:
+                # Use pydub to slice audio if it's too large (>20MB) or just slice it into 5-minute chunks
+                audio = AudioSegment.from_wav(wav)
+                chunk_length_ms = 5 * 60 * 1000  # 5 minutes
+                chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+                
+                full_transcription = []
+                groq_key = os.environ.get("GROQ_API_KEY", "")
+                
+                for idx, chunk in enumerate(chunks):
+                    chunk_wav = f"{file_path}_chunk{idx}.wav"
+                    chunk.export(chunk_wav, format="wav")
                     
-                    # Try English first, then fallback to Nepali if needed
-                    try:
-                        text = rec.recognize_google(audio_data, language='en-US')
-                    except sr.UnknownValueError:
-                        text = rec.recognize_google(audio_data, language='ne-NP')
-                        
-                    return [{"type": "text", "text": f'[Voice note says: "{text}"]'}]
-                except sr.UnknownValueError:
-                    return [{"type": "text", "text": "[Voice note: couldn't make out what they said]"}]
-                except sr.RequestError:
-                    return [{"type": "text", "text": "[Voice note: transcription service unavailable]"}]
+                    text_chunk = ""
+                    if groq_key:
+                        try:
+                            with open(chunk_wav, 'rb') as audio_file:
+                                resp = requests.post(
+                                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                                    headers={'Authorization': f'Bearer {groq_key}'},
+                                    files={'file': (os.path.basename(chunk_wav), audio_file, 'audio/wav')},
+                                    data={'model': 'whisper-large-v3', 'response_format': 'text'},
+                                    timeout=60
+                                )
+                            if resp.status_code == 200:
+                                text_chunk = resp.text.strip()
+                            else:
+                                print(f"[whisper error] HTTP {resp.status_code}: {resp.text}")
+                        except Exception as e:
+                            print(f"[whisper chunk error] {e}")
+                    
+                    # Fallback to Google if Groq failed or not configured
+                    if not text_chunk:
+                        try:
+                            rec = sr.Recognizer()
+                            with sr.AudioFile(chunk_wav) as src:
+                                audio_data = rec.record(src)
+                            try:
+                                text_chunk = rec.recognize_google(audio_data, language='en-US')
+                            except sr.UnknownValueError:
+                                text_chunk = rec.recognize_google(audio_data, language='ne-NP')
+                        except Exception as e:
+                            print(f"[google sr chunk error] {e}")
+                    
+                    if text_chunk:
+                        full_transcription.append(text_chunk)
+                    
+                    # Clean up chunk
+                    if os.path.exists(chunk_wav):
+                        os.remove(chunk_wav)
+                
+                final_text = " ".join(full_transcription).strip()
+                if final_text:
+                    print(f"[transcribed] Length: {len(final_text)} chars")
+                    return [{"type": "text", "text": f'[Voice note says: "{final_text}"]'}]
+                else:
+                    return [{"type": "text", "text": "[Voice note: couldn't transcribe audio]"}]
+                    
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return [{"type": "text", "text": f"[Voice note: chunking failed: {e}]"}]
     except Exception as e:
         print(f"[media process error] {e}")
     return None
@@ -1222,9 +1254,10 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         print(f"[audio] Downloading voice note {msg_id} for transcription...")
         local_path = download_media(msg_id, chat_jid)
         if local_path:
-            text = transcribe_audio(local_path)
-            if text:
-                content = f"[Voice note says: \"{text}\"]"
+            # process_media returns: [{"type": "text", "text": "[Voice note says: \"...\"]"}]
+            media_blocks = process_media(local_path, 'audio')
+            if media_blocks and len(media_blocks) > 0 and 'text' in media_blocks[0]:
+                content = media_blocks[0]['text']
                 print(f"[transcribed] {content}")
             else:
                 content = "[User sent a voice note but transcription failed]"
@@ -1266,4 +1299,6 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("auto_reply:app", host="0.0.0.0", port=8000, reload=True)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("auto_reply:app", host="0.0.0.0", port=port, reload=True)
