@@ -699,13 +699,16 @@ API_KEYS = {
     ] if k]
 }
 
-# Default model order (text-only) — confirmed working order
+# Default model order (text-only) — priority: best Nepali output first
+# qwen/qwen-2.5-72b-instruct confirmed: replies in perfect Romanized Nepali style
 MODELS_TEXT = [
-    ("openrouter", "google/gemini-2.5-flash"),   # ✅ fast, cheap, multilingual, primary
-    ("openrouter", "openai/gpt-4o-mini"),         # ✅ reliable fallback
-    ("openrouter", "anthropic/claude-haiku-4-5"), # ✅ good quality
-    ("groq",       "llama3-70b-8192"),            # fast if key works
-    ("deepseek",   "deepseek-chat"),              # if has balance
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"),  # ✅ #1 — best Nepali, casual style
+    ("openrouter", "google/gemini-2.5-flash"),      # ✅ #2 — fast, multilingual
+    ("openrouter", "openai/gpt-4o-mini"),           # ✅ #3 — reliable
+    ("openrouter", "anthropic/claude-haiku-4-5"),   # ✅ #4 — quality fallback
+    ("groq",       "llama3-70b-8192"),              # fast if key valid
+    ("groq",       "qwen-qwq-32b"),                 # Groq Qwen if available
+    ("deepseek",   "deepseek-chat"),                # if has balance
     ("gemini",     "gemini-1.5-flash"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("openrouter", "openai/gpt-4o"),
@@ -715,9 +718,10 @@ MODELS_TEXT = [
 
 # Vision model order (for image/video messages)
 MODELS_VISION = [
-    ("openrouter", "google/gemini-2.5-flash"),   # ✅ best multimodal, cheap
-    ("openrouter", "openai/gpt-4o-mini"),         # ✅ vision capable
-    ("openrouter", "anthropic/claude-haiku-4-5"), # ✅ vision capable
+    ("openrouter", "google/gemini-2.5-flash"),      # ✅ best multimodal
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   # ✅ vision + Nepali
+    ("openrouter", "openai/gpt-4o-mini"),           # ✅ vision capable
+    ("openrouter", "anthropic/claude-haiku-4-5"),   # ✅ vision capable
     ("openrouter", "openai/gpt-4o"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("gemini",     "gemini-1.5-flash"),
