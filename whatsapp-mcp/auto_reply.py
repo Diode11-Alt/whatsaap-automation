@@ -935,6 +935,7 @@ def main():
                             bot_active = bot_state['active']
                             save_bot_state(bot_state)
                             print(f"[COMMAND] {content!r} → {cmd_response}")
+                            send_whatsapp_message(chat_jid, cmd_response)
                     # Legacy global commands from anywhere
                     elif content.strip().lower() == '#stop':
                         bot_active = False
