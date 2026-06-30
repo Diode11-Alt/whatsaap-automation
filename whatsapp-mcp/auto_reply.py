@@ -371,6 +371,8 @@ def load_bot_state():
             "active": True,
             "muted_jids": [],        # JIDs to never reply to
             "reply_only_jids": [],   # If non-empty, ONLY reply to these
+            "mute_all_groups": False, # Stop replying to all groups
+            "general_instruction": "" # Any custom instructions provided
         }
 
 def save_bot_state(state):
@@ -408,11 +410,24 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
                     jid = profile.get('jid', '')
                     state['muted_jids'] = [j for j in state['muted_jids'] if j != jid]
                     return state, f"Unmuted {profile.get('nickname', contact_key)}."
+    # --- Group stop/start ---
+    if t in ['stop group reply', 'stop group', 'mute group', 'mute groups']:
+        state['mute_all_groups'] = True
+        return state, "Muted all groups."
+    if t in ['start group reply', 'start group', 'unmute group', 'unmute groups']:
+        state['mute_all_groups'] = False
+        return state, "Unmuted all groups."
     # --- Status check ---
     if t in ['status', 'state', 'info']:
         muted = state.get('muted_jids', [])
-        return state, f"Active: {state['active']}. Muted JIDs: {muted or 'none'}."
-    return state, ""  # Not a recognized command
+        g_mute = state.get('mute_all_groups', False)
+        instr = state.get('general_instruction', '')
+        return state, f"Active: {state['active']}. Group Mute: {g_mute}. Muted JIDs: {muted or 'none'}. Custom Instruction: {instr}"
+    
+    # --- Any other command is treated as a general instruction for the AI ---
+    # e.g., "always talk in english", "be rude", "don't reply kanxo if she says ok"
+    state['general_instruction'] = text.strip()
+    return state, f"Understood! New AI rule applied: '{text.strip()}'"
 
 # ─── Proactive Auto-Texting Routine Engine ────────────────────────────────────
 
@@ -957,8 +972,8 @@ def main():
                 group_type = group_info["type"]
                 chat_name = group_info["name"] or chat_jid.split('@')[0]
 
-                # ── PUBLIC: always skip ─────────────────────────────────────
-                if group_type == "PUBLIC":
+                # ── PUBLIC or All-Group Mute ────────────────────────────────
+                if group_type == "PUBLIC" or (bot_state.get('mute_all_groups', False) and '@g.us' in chat_jid):
                     replied_ids.add(msg_id)
                     continue
 
@@ -1064,10 +1079,15 @@ def main():
                     system_prompt += f"\n\n<knowledge>\n{knowledge_text}\n</knowledge>\n"
                     system_prompt += "RULES: If the answer is in <knowledge>, answer directly. If NOT, don't guess.\n"
 
-                # 2.5 Inject Context & Time
+                # 2.5 Inject Context, Time, and Custom Rules
                 current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
-                system_prompt += f"""
+                
+                custom_rule = ""
+                if bot_state.get('general_instruction'):
+                    custom_rule = f"\nCRITICAL CUSTOM RULE FROM SUJAL (Follow strictly): {bot_state['general_instruction']}\n"
 
+                system_prompt += f"""
+{custom_rule}
 <context>
 Current Time & Date: {current_time}
 Situational Analysis: Before answering, deeply analyze the chat history. Think about why the user sent this message right now, the time of day, the context of the situation, and how you should best react.
