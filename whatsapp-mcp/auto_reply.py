@@ -227,9 +227,11 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     if content:
         background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
 
-    # ── Parse commands from Sujal's own messages in "All data" ──
+    # ── Parse commands from Sujal's own messages in "All data" or his Alt DMs ──
     is_sujal = (sender and any(sender.startswith(sid) for sid in ["166747927797942", "181101876240397"]))
-    if is_sujal and chat_jid == all_data_jid and content.strip():
+    is_alt_dm = chat_jid.startswith("166747927797942") or chat_jid.startswith("181101876240397")
+    
+    if is_sujal and (chat_jid == all_data_jid or is_alt_dm) and content.strip():
         if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
             return {"status": "ignored"}
             
@@ -264,16 +266,17 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                 f.write(f"=== {current_time} | Chat: {chat_jid} (Command) ===\n")
                 f.write(f"User: {content}\n")
                 f.write(f"AI Reply: {final_reply}\n\n")
-        else:
-            # If it's not a recognized command, store it directly into long-term memory facts
+            return {"status": "ok"}
+        elif chat_jid == all_data_jid:
+            # If it's not a recognized command, store it directly into long-term memory facts ONLY if in all_data
             store_direct_fact(all_data_jid, content.strip())
             send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
             with open(log_file, 'a', encoding='utf-8') as f:
                 f.write(f"=== {current_time} | Chat: {chat_jid} (Memo) ===\n")
                 f.write(f"User: {content}\n")
                 f.write(f"AI Reply: 🤖 Memo saved to long-term memory.\n\n")
-                
-        return {"status": "ok"}
+            return {"status": "ok"}
+        # If it's an alt DM and not a command, we intentionally fall through to let the AI chat naturally
         
     if is_from_me:
         replied_ids.add(msg_id)
