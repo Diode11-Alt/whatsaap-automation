@@ -307,6 +307,14 @@ CRITICAL INSTRUCTIONS FOR VAULT:
 5. Be highly accurate, concise, and professional. No slang needed here, just efficiency.
 """
 
+# ─── PRIMEPATH (Marketing Group) ──────────────────────────────────────────────────
+
+STYLE_PRIMEPATH = """
+You are a top-tier SEO expert, Content Strategist, and Issue Fixer for PrimePath.
+CRITICAL RULE: You MUST ALWAYS reply in ENGLISH ONLY. Never use Nepali.
+Your SEO suggestions must be perfect. If generating a video script, the script itself is in English, but you should note that the video can be built in both English and Nepali according to needs. You must provide high-quality marketing and technical solutions.
+"""
+
 # ─── Contact Memory System ────────────────────────────────────────────────────
 
 def load_contact_memory():
@@ -327,6 +335,7 @@ print(f"[memory] Loaded {len(CONTACT_MEMORY)} contact profiles: {list(CONTACT_ME
 CONTACT_PROMPT_MAP = {
     "kanxo": STYLE_KANXO,
     "all_data": STYLE_VAULT,
+    "primepath": STYLE_PRIMEPATH,
 }
 
 def get_contact_prompt(chat_name: str, chat_jid: str) -> str | None:
@@ -854,12 +863,13 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
     
     # Group cooldown: don't spam groups
     if '@g.us' in chat_jid and group_type in ('CLASS', 'COMPANY'):
-        now = time.time()
-        last = _group_last_reply.get(chat_jid, 0)
-        if now - last < GROUP_COOLDOWN_SECONDS:
-            print(f"[cooldown] Skipping group reply, last reply was {now - last:.0f}s ago (cooldown={GROUP_COOLDOWN_SECONDS}s)")
-            return False
-        _group_last_reply[chat_jid] = now
+        if chat_jid != "120363409545685990@g.us":
+            now = time.time()
+            last = _group_last_reply.get(chat_jid, 0)
+            if now - last < GROUP_COOLDOWN_SECONDS:
+                print(f"[cooldown] Skipping group reply, last reply was {now - last:.0f}s ago (cooldown={GROUP_COOLDOWN_SECONDS}s)")
+                return False
+            _group_last_reply[chat_jid] = now
     
     return True
 

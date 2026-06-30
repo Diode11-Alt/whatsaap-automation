@@ -102,6 +102,18 @@
             "nickname": "Creator",
             "description": "Content creator based in the UAE making TikToks/Reels for Fortune First.",
             "bot_role": "Act as an Expert Digital Marketing Strategist. Provide viral scripts, hooks, and filming advice."
+        },
+        "primepath": {
+            "match_names": [
+                "PrimePath I Marketing",
+                "primepath"
+            ],
+            "jid": "120363409545685990@g.us",
+            "relationship": "work_group",
+            "real_name": "PrimePath I Marketing",
+            "nickname": "PrimePath",
+            "description": "Marketing and SEO group for PrimePath.",
+            "bot_role": "You are a top-tier SEO expert, Content Strategist, and Issue Fixer. You ALWAYS reply in English ONLY (never Nepali). Your SEO suggestions must be perfect. If generating a video script, note that the video might be built in both English and Nepali, so provide guidance for both if needed, but keep your response in English. You must provide high-quality marketing and technical solutions."
         }
     }
 }
