@@ -37,10 +37,34 @@ def get_last_message_time(chat_jid: str) -> datetime:
         return datetime.now(NPT_TZ) - timedelta(days=1)
     
     try:
-        dt = datetime.fromisoformat(res.replace(' ', 'T'))
+        dt = datetime.fromisoformat(res.replace(' ', 'T').replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(NPT_TZ)
     except:
         return datetime.now(NPT_TZ) - timedelta(days=1)
+
+def get_randomized_trigger_time(today_str: str, r_id: str, start_t: str, end_t: str) -> str:
+    """Generate a pseudo-random time within the window that stays constant for the given day."""
+    import hashlib
+    seed_str = f"{today_str}_{r_id}"
+    hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+    
+    h1, m1 = map(int, start_t.split(':'))
+    h2, m2 = map(int, end_t.split(':'))
+    
+    start_mins = h1 * 60 + m1
+    end_mins = h2 * 60 + m2
+    
+    if end_mins <= start_mins:
+        return start_t # Fallback
+        
+    random_offset = hash_val % (end_mins - start_mins)
+    trigger_mins = start_mins + random_offset
+    
+    trigger_h = trigger_mins // 60
+    trigger_m = trigger_mins % 60
+    return f"{trigger_h:02d}:{trigger_m:02d}"
 
 def process_auto_routines():
     state = load_routines_state()
@@ -62,14 +86,18 @@ def process_auto_routines():
             r_id = f"{contact_key}_{r['id']}"
             start_t, end_t = r["time_window"]
             
-            if start_t <= current_time_str <= end_t:
+            # Get today's random trigger time within the window
+            trigger_time = get_randomized_trigger_time(today_str, r_id, start_t, end_t)
+            
+            # Fire if we have passed the random trigger time, but we are still inside the overall window
+            if trigger_time <= current_time_str <= end_t:
                 if state.get(r_id) != today_str:
                     
                     # Prevent auto-texting if we are already actively chatting
                     if hours_since_last_msg < 2:
                         continue 
                     
-                    print(f"[routine] Firing {r_id} for {chat_jid}")
+                    print(f"[routine] Firing {r_id} for {chat_jid} (Scheduled for {trigger_time})")
                     
                     system_prompt = CONTACT_PROMPT_MAP.get(contact_key)
                     if not system_prompt:
