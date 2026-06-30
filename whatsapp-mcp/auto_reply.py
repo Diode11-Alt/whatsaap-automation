@@ -861,6 +861,30 @@ def get_ai_reply(system_prompt: str, chat_history: list[dict],
 _group_last_reply: dict[str, float] = {}
 GROUP_COOLDOWN_SECONDS = 120  # Don't reply more than once every 2 min in groups
 
+def clean_whatsapp_formatting(text: str) -> str:
+    """Clean up markdown and raw AI tags so it looks professional on WhatsApp."""
+    if not text:
+        return ""
+    # 1. Force strip any stray <reply> tags just in case
+    text = text.replace("<reply>", "").replace("</reply>", "")
+    
+    # 2. Remove markdown horizontal rules (e.g. ***, ---)
+    import re
+    text = re.sub(r'^\s*[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+    
+    # 3. Convert markdown headers (### Heading) to WhatsApp bold (*Heading*)
+    text = re.sub(r'^###\s+(.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^##\s+(.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^#\s+(.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    
+    # 4. Convert Markdown **bold** to WhatsApp *bold*
+    text = re.sub(r'\*\*(.*?)\*\*', r'*\1*', text)
+    
+    # 5. Clean up excessive blank lines left over from removing rules
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
+
 def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> bool:
     """Filter out SKIP signals, empty replies, and enforce group cooldowns."""
     if not reply_text:
@@ -1228,6 +1252,9 @@ Sujal's rule says "never talk about school today". The user is asking about scho
                     cleaned = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL)
                     cleaned = re.sub(r'<remember>.*?</remember>', '', cleaned, flags=re.DOTALL)
                     reply = cleaned.strip()
+
+                # Apply final WhatsApp cleanup
+                reply = clean_whatsapp_formatting(reply)
 
                 # AUTO-MEMORY: Save any <remember> facts to knowledge.txt and DB
                 if remember_matches:
