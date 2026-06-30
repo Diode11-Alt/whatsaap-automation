@@ -1120,11 +1120,19 @@ IMPORTANT OUTPUT FORMAT:
 You MUST think and analyze the situation before replying. Wrap your inner thoughts inside <thought> tags.
 After thinking, wrap the actual message you want to send inside <reply> tags.
 
-Example:
+CRITICAL: If the Custom Rules dictate that you should NOT reply to this message, or if it's better to ignore it, you MUST output exactly the word SKIP inside the reply tags. Do NOT apologize or explain inside the reply tags.
+
+Example 1:
 <thought>
 User said "k xa?". I should reply with a casual "thikai xu".
 </thought>
 <reply>thikai xu</reply>
+
+Example 2 (Muted due to rule):
+<thought>
+Sujal's rule says "never talk about school today". The user is asking about school. I should not reply.
+</thought>
+<reply>SKIP</reply>
 """
 
                 # 3. Save incoming user message
