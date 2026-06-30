@@ -124,16 +124,42 @@ def classify_group(chat_jid: str, chat_name: str, recent_msgs: list[str]) -> str
 
 # ─── Per-type System Prompts ─────────────────────────────────────────────────
 
-BASE_IDENTITY = """You are replying AS Sujal Mainali (alias DIODE), a Computer Science student at IIMS College in Kathmandu, Nepal. He also works at Fortune First (HR consultancy) and interns at NIC Nepal. He is a builder — 10+ shipped projects, full-stack + IoT.
+BASE_IDENTITY = """You are replying AS Sujal Mainali (alias DIODE), a Computer Science student at IIMS College in Kathmandu, Nepal. He also works at Fortune First (HR consultancy) and interns at NIC Nepal. He is a builder — 10+ shipped projects, full-stack + IoT. He is currently in Dubai.
 
-HARD RULES:
-- Never say you are an AI, bot, or automated system. EVER. Not even if directly asked.
-- Never repeat yourself or get stuck in a loop.
-- Match the exact energy and length of the incoming message. If they send 2 words, reply in 2-5 words. If they send a paragraph, reply in a paragraph.
-- LANGUAGE INTELLIGENCE: Read the chat history and detect what language the other person is using. If they write in English, reply in English. If they write in Romanized Nepali/Nepanglish, reply in Nepanglish. If they mix both, mix both. ALWAYS match their language.
-- READ THE FULL CHAT HISTORY before replying. Understand the ongoing conversation topic, the mood, the relationship, and the context. Your reply must feel like a natural continuation.
-- NEVER introduce new topics out of nowhere. Stay on the current thread of conversation.
-- If someone sends just a greeting like "hi" or "oi", reply with a short greeting back, don't write an essay.
+HARD RULES — NEVER BREAK THESE:
+- You ARE Sujal. Never say you're an AI, bot, or automated system. Not even if directly asked.
+- NEVER repeat yourself. NEVER write walls of text in casual chat.
+- Match the EXACT energy and length of the incoming message. 2 words in? 2-5 words back. Paragraph? paragraph back.
+- LANGUAGE: Auto-detect from chat history. Romanized Nepali → Romanized Nepali. English → English. Mix → mix.
+- READ THE FULL CHAT HISTORY before replying. Understand the ongoing topic, mood, relationship. Your reply is a natural continuation.
+- NEVER introduce new topics. Stay on the thread.
+
+SUJAL'S EXACT TYPING STYLE (copy this, DO NOT write like a textbook):
+- Uses 'xa' instead of 'cha/chha' (e.g. 'kasto xa' NOT 'kasto cha')
+- Uses 'xau' instead of 'chau' (e.g. 'k gardai xau')
+- Uses 'xu' instead of 'chu' (e.g. 'ma kaam gardai xu')
+- Uses 'khiyes/khiyes' for 'khaiyeu' (e.g. 'khana khiyes')
+- Uses 'gwko' for 'gaeko' (e.g. 'k garna gwko')
+- Uses 'vako/vayo' for 'bhako/bhayo'
+- Uses 'vanne/vanxas' for 'bhanne/bhan'
+- Uses 'snai' sometimes instead of 'sani'
+- Uses 'aaile' for 'ahile' (right now)
+- Starts with lowercase often: 'sani', 'oi', 'k gardai xau'
+- Short burst messages — sends 2-3 short msgs rather than 1 long one
+- Common words: 'Huss' (ok/yes), 'Hajur' (respectful yes), 'Aw/Aww' (yes/casual ack), 'Eaea/Eaa' (acknowledgment)
+- 'Oii/Oi' for greeting/pinging
+- 'Gn' for good night, 'k ho' for 'what is this'
+- 'dwy' for 'deu' (give me, e.g. 'pw dwy' = give me password)
+- 'kwa' for 'kata/kahaa' (where)
+- Typos are normal and INTENTIONAL: 'kniyes', 'buwa', 'tya', 'aaye', 'boli sakis'
+- NEVER writes: 'thik cha, ramro kura' or 'k garna plan cha' — these are AI-speak
+
+CORRECT EXAMPLE REPLIES:
+- To 'k gardai xas': reply 'kaam gardai xu' or 'ntg bro, ta k'
+- To 'k xa': reply 'thikai xu' or 'huss'
+- To 'I miss you': reply 'i miss you too sani 😭'
+- To 'Hu': reply 'k vayo?' gently
+- WRONG replies (NEVER write these): 'Thik xa, ramro kura! K garna plan cha?' / 'Sabai thik cha, timi kasto hau?' / 'Hey! What's up?'
 """
 
 STYLE_PERSONAL = BASE_IDENTITY + """
@@ -322,6 +348,62 @@ TYPE_TO_PROMPT = {
     "COMPANY":  STYLE_COMPANY,
     "PUBLIC":   STYLE_PUBLIC,
 }
+
+# ─── Bot State (Dynamic Commands from "All data") ─────────────────────────────
+
+BOT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bot_state.json')
+
+def load_bot_state():
+    try:
+        with open(BOT_STATE_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return {
+            "active": True,
+            "muted_jids": [],        # JIDs to never reply to
+            "reply_only_jids": [],   # If non-empty, ONLY reply to these
+        }
+
+def save_bot_state(state):
+    with open(BOT_STATE_FILE, 'w') as f:
+        json.dump(state, f, indent=2)
+
+def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, str]:
+    """Parse natural language commands from Sujal in 'All data'. Returns updated state and response."""
+    t = text.strip().lower()
+    # --- Global stop/start ---
+    if t in ['#stop', 'stop', 'pause']:
+        state['active'] = False
+        return state, "Bot paused. Send 'start' to resume."
+    if t in ['#start', 'start', 'resume']:
+        state['active'] = True
+        return state, "Bot active. Replying to all."
+    # --- Mute a contact ---
+    for keyword in ['mute', "don't reply", 'dont reply', 'stop replying']:
+        if keyword in t:
+            for contact_key, profile in contact_memory.items():
+                nick = profile.get('nickname', contact_key).lower()
+                real = profile.get('real_name', '').lower()
+                if nick in t or real in t or contact_key in t:
+                    jid = profile.get('jid', '')
+                    if jid and jid not in state['muted_jids']:
+                        state['muted_jids'].append(jid)
+                    return state, f"Muted {profile.get('nickname', contact_key)}. Will not reply."
+    # --- Unmute a contact ---
+    for keyword in ['unmute', 'reply to', 'start replying to']:
+        if keyword in t:
+            for contact_key, profile in contact_memory.items():
+                nick = profile.get('nickname', contact_key).lower()
+                real = profile.get('real_name', '').lower()
+                if nick in t or real in t or contact_key in t:
+                    jid = profile.get('jid', '')
+                    state['muted_jids'] = [j for j in state['muted_jids'] if j != jid]
+                    return state, f"Unmuted {profile.get('nickname', contact_key)}."
+    # --- Status check ---
+    if t in ['status', 'state', 'info']:
+        muted = state.get('muted_jids', [])
+        return state, f"Active: {state['active']}. Muted JIDs: {muted or 'none'}."
+    return state, ""  # Not a recognized command
 
 # ─── Proactive Auto-Texting Routine Engine ────────────────────────────────────
 
@@ -721,7 +803,14 @@ def main():
     replied_ids = set()
     group_type_cache = {}
     pending = {}  # { chat_jid: { msgs: [...], fire_at: float, system_prompt: str, group_type: str } }
-    bot_active = True
+    bot_state = load_bot_state()
+    bot_active = bot_state.get('active', True)
+
+    # Identify Sujal's own "All data" JID for command parsing
+    all_data_jid = ""
+    for ck, profile in CONTACT_MEMORY.items():
+        if ck == 'all_data':
+            all_data_jid = profile.get('jid', '')
 
     while True:
         try:
@@ -761,18 +850,37 @@ def main():
                 if msg_rowid > last_rowid:
                     last_rowid = msg_rowid
 
-                # Check for kill switch
+                # ── Parse commands from Sujal's own messages in "All data" ──
                 if is_from_me:
-                    if content.strip().lower() == '#stop':
+                    if chat_jid == all_data_jid and content.strip():
+                        new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
+                        if cmd_response:
+                            bot_state = new_state
+                            bot_active = bot_state['active']
+                            save_bot_state(bot_state)
+                            print(f"[COMMAND] {content!r} → {cmd_response}")
+                    # Legacy global commands from anywhere
+                    elif content.strip().lower() == '#stop':
                         bot_active = False
-                        print("[COMMAND] Bot STOPPED via #stop command")
+                        bot_state['active'] = False
+                        save_bot_state(bot_state)
+                        print("[COMMAND] Bot STOPPED")
                     elif content.strip().lower() == '#start':
                         bot_active = True
-                        print("[COMMAND] Bot STARTED via #start command")
-                    continue  # Skip all self-messages from being replied to
+                        bot_state['active'] = True
+                        save_bot_state(bot_state)
+                        print("[COMMAND] Bot STARTED")
+                    continue  # Never reply to self-messages
 
                 if not bot_active:
                     continue  # Bot is paused
+
+                # ── Check per-contact muting ──
+                muted_jids = bot_state.get('muted_jids', [])
+                if chat_jid in muted_jids:
+                    replied_ids.add(msg_id)
+                    print(f"[muted] Skipping reply to {chat_jid}")
+                    continue
                     
                 if msg_id in replied_ids:
                     continue
