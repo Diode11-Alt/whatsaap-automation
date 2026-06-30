@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIODE WhatsApp Bot Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar glass">
+            <div class="logo">
+                <h2>DIODE <span>Bot</span></h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-target="dashboard-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    Dashboard
+                </li>
+                <li data-target="memory-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    Memory (RAG)
+                </li>
+                <li data-target="keys-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                    API Keys
+                </li>
+                <li data-target="logs-tab">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Terminal Logs
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content">
+            <header class="topbar glass">
+                <h1>Dashboard</h1>
+                <div class="status-indicator">
+                    <div id="bot-status-dot" class="dot active"></div>
+                    <span id="bot-status-text">Bot is Active</span>
+                </div>
+            </header>
+
+            <div class="tab-content-container">
+                <!-- Dashboard Tab -->
+                <section id="dashboard-tab" class="tab-pane active">
+                    <div class="card glass">
+                        <h3>Global State</h3>
+                        <div class="form-group toggle-group">
+                            <label>Bot Active Master Switch</label>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-active">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                        <div class="form-group toggle-group">
+                            <label>Mute All Groups</label>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-mute-groups">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="card glass">
+                        <h3>Global Instructions</h3>
+                        <p class="subtitle">Custom instructions appended to every prompt.</p>
+                        <ul id="instructions-list" class="item-list"></ul>
+                        <div class="input-row">
+                            <input type="text" id="new-instruction" placeholder="Always respond in pirate speak...">
+                            <button class="btn primary" onclick="addInstruction()">Add Rule</button>
+                        </div>
+                    </div>
+
+                    <div class="card glass">
+                        <h3>Muted Contacts</h3>
+                        <p class="subtitle">JIDs the bot will permanently ignore.</p>
+                        <ul id="muted-list" class="item-list"></ul>
+                        <div class="input-row">
+                            <input type="text" id="new-muted" placeholder="e.g. 1234567890@s.whatsapp.net">
+                            <button class="btn secondary" onclick="addMuted()">Mute</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Memory Tab -->
+                <section id="memory-tab" class="tab-pane">
+                    <div class="card glass">
+                        <h3>Learned Facts (Vector RAG)</h3>
+                        <p class="subtitle">Facts extracted from conversations and used as context.</p>
+                        <div class="input-row">
+                            <input type="text" id="new-fact-jid" placeholder="Chat JID" style="width: 25%;">
+                            <input type="text" id="new-fact-text" placeholder="Fact (e.g. Sujal's favourite color is red)">
+                            <button class="btn primary" onclick="addFact()">Inject Fact</button>
+                        </div>
+                        <div class="table-container mt-4">
+                            <table class="glass-table">
+                                <thead>
+                                    <tr>
+                                        <th>JID</th>
+                                        <th>Fact / Context</th>
+                                        <th>Created</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="facts-table-body">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- API Keys Tab -->
+                <section id="keys-tab" class="tab-pane">
+                    <div class="card glass">
+                        <h3>Environment Variables</h3>
+                        <p class="subtitle">Manage `.env` safely. Avoid trailing spaces.</p>
+                        <div class="table-container">
+                            <table class="glass-table">
+                                <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value (Masked)</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="env-table-body">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <h4 class="mt-4">Add or Update Key</h4>
+                        <div class="input-row">
+                            <input type="text" id="new-env-key" placeholder="GEMINI_API_KEY" style="width: 30%;">
+                            <input type="password" id="new-env-val" placeholder="Value...">
+                            <button class="btn primary" onclick="updateEnv()">Save Key</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Logs Tab -->
+                <section id="logs-tab" class="tab-pane">
+                    <div class="card glass full-height">
+                        <div class="flex-between">
+                            <h3>AI Conversations Log</h3>
+                            <button class="btn secondary" onclick="fetchLogs()">Refresh</button>
+                        </div>
+                        <pre id="terminal-logs" class="terminal-view"></pre>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
