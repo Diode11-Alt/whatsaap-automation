@@ -19,6 +19,9 @@ def clean_whatsapp_formatting(text: str) -> str:
     # 1. Force strip any stray <reply> tags just in case
     text = text.replace("<reply>", "").replace("</reply>", "")
     
+    # 1.5 Strip blockquotes which models sometimes output
+    text = text.replace("<blockquote>", "").replace("</blockquote>", "")
+    
     # 2. Remove markdown horizontal rules (e.g. ***, ---)
     import re
     text = re.sub(r'^\s*[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)

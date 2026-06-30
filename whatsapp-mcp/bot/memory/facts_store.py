@@ -22,17 +22,24 @@ def extract_and_store_facts(chat_jid: str, ai_response: str):
         if len(fact) < 5:
             continue
             
-        vec = get_embedding(fact, task_type="RETRIEVAL_DOCUMENT")
-        if vec:
-            try:
-                cursor.execute("""
-                    INSERT INTO learned_facts (chat_jid, fact_text, embedding)
-                    VALUES (?, ?, ?)
-                """, (chat_jid, fact, json.dumps(vec)))
-                print(f"[memory] Stored learned fact: {fact}")
-            except Exception as e:
-                print(f"[memory] Failed to store fact: {e}")
-                
+        store_direct_fact(chat_jid, fact)
+
+def store_direct_fact(chat_jid: str, fact: str):
+    """Store a single fact string directly into the vector db."""
+    vec = get_embedding(fact, task_type="RETRIEVAL_DOCUMENT")
+    if not vec:
+        return
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO learned_facts (chat_jid, fact_text, embedding)
+            VALUES (?, ?, ?)
+        """, (chat_jid, fact, json.dumps(vec)))
+        print(f"[memory] Stored direct fact: {fact}")
+    except Exception as e:
+        print(f"[memory] Failed to store direct fact: {e}")
     conn.commit()
     conn.close()
 

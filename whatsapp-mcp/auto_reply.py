@@ -24,7 +24,7 @@ from bot.ai_client import get_ai_reply, should_send, clean_whatsapp_formatting
 from bot.state import load_bot_state, save_bot_state, parse_command
 from bot.knowledge import load_knowledge
 from bot.memory.retrieval import get_context_for_reply, embed_and_store
-from bot.memory.facts_store import get_learned_context, extract_and_store_facts
+from bot.memory.facts_store import get_learned_context, extract_and_store_facts, store_direct_fact
 
 # Global State
 bot_state = load_bot_state()
@@ -187,7 +187,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
 
     # ── Parse commands from Sujal's own messages in "All data" ──
-    if is_from_me:
+    is_sujal = is_from_me or (sender and any(sender.startswith(sid) for sid in ["166747927797942", "181101876240397"]))
+    if is_sujal:
         if chat_jid == all_data_jid and content.strip():
             if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
                 return {"status": "ignored"}
@@ -211,6 +212,10 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                         send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
                 else:
                     send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
+            else:
+                # If it's not a recognized command, store it directly into long-term memory facts
+                store_direct_fact(all_data_jid, content.strip())
+                send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
         return {"status": "ok"}
 
     if not bot_active:
