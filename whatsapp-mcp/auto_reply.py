@@ -128,22 +128,42 @@ async def pending_messages_loop():
                         f.write(f"AI Thought: {thought}\n")
                         f.write(f"AI Reply: {reply}\n\n")
 
-                    # 5. Send message with Typing Simulation
+                    # 5. Send message with Typing/Recording Simulation
                     if should_send(reply, group_type, chat_jid):
                         reply = reply.strip()
                         
-                        # Calculate typing delay (approx 60 WPM -> ~5 chars/sec)
-                        # Min 0.5s, Max 5.0s so it feels natural but not annoying
-                        typing_delay = max(0.5, min(len(reply) / 15.0, 5.0))
+                        # Check for Voice Note tag
+                        voice_match = re.search(r'<voice>(.*?)</voice>', reply, re.DOTALL | re.IGNORECASE)
                         
-                        print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
-                        send_presence(chat_jid, "typing")
-                        await asyncio.sleep(typing_delay)
-                        
-                        send_whatsapp_message(chat_jid, reply)
-                        send_presence(chat_jid, "paused")
-                        
-                        print(f"[sent] -> {chat_jid}: {reply[:60]!r}")
+                        if voice_match:
+                            voice_text = voice_match.group(1).strip()
+                            print(f"[recording...] {chat_jid}")
+                            send_presence(chat_jid, "recording")
+                            
+                            from bot.tts_client import generate_voice_note
+                            audio_path = generate_voice_note(voice_text)
+                            
+                            if audio_path:
+                                send_whatsapp_message(chat_jid, "", media_path=audio_path)
+                                print(f"[sent voice note] -> {chat_jid}: {voice_text[:60]!r}")
+                            else:
+                                # Fallback to text if audio generation fails
+                                send_whatsapp_message(chat_jid, voice_text)
+                                print(f"[sent voice fallback] -> {chat_jid}: {voice_text[:60]!r}")
+                                
+                            send_presence(chat_jid, "paused")
+                        else:
+                            # Standard Text Message
+                            typing_delay = max(0.5, min(len(reply) / 15.0, 5.0))
+                            
+                            print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
+                            send_presence(chat_jid, "typing")
+                            await asyncio.sleep(typing_delay)
+                            
+                            send_whatsapp_message(chat_jid, reply)
+                            send_presence(chat_jid, "paused")
+                            
+                            print(f"[sent] -> {chat_jid}: {reply[:60]!r}")
                     else:
                         print(f"[skip reply] group={group_type} | reply={reply!r}")
 

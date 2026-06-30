@@ -27,10 +27,13 @@ def get_new_messages(last_rowid: int) -> list:
     except Exception:
         return []
 
-def send_whatsapp_message(chat_jid: str, content: str):
+def send_whatsapp_message(chat_jid: str, content: str, media_path: str = ""):
     try:
         payload = {"recipient": chat_jid, "message": content}
-        resp = requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=5)
+        if media_path:
+            payload["mediaPath"] = media_path
+            
+        resp = requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=10)
         if resp.status_code == 200:
             print(f"[sent] -> {chat_jid}: {content!r}")
         else:
