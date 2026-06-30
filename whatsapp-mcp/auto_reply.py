@@ -1190,6 +1190,7 @@ def main():
 <context>
 Current Time & Date: {current_time}
 Situational Analysis: Before answering, deeply analyze the chat history. Think about why the user sent this message right now, the time of day, the context of the situation, and how you should best react.
+Check the Current Time & Date against any custom rules (e.g., "don't reply until 5 PM"). If a rule restricts replying until a specific time, and that time hasn't passed, you MUST SKIP.
 </context>
 
 IMPORTANT OUTPUT FORMAT:
@@ -1201,7 +1202,14 @@ If during this conversation you discover a NEW, IMPORTANT fact about anyone (e.g
 Only remember facts that are genuinely useful for future conversations. Do NOT remember trivial greetings or small talk.
 You can output multiple <remember> tags if there are multiple facts.
 
-CRITICAL: If the Custom Rules dictate that you should NOT reply to this message, or if it's better to ignore it, you MUST output exactly the word SKIP inside the reply tags. Do NOT apologize or explain inside the reply tags.
+CRITICAL SKIP LOGIC:
+You must critically evaluate if a reply is necessary. DO NOT just reply to reply. 
+You MUST output exactly the word SKIP inside the reply tags (i.e. <reply>SKIP</reply>) IF:
+1. A Custom Rule dictates that you should not reply.
+2. A Custom Rule restricts replying until a specific time, and the Current Time has not reached it.
+3. The user sent a generic acknowledgment ("ok", "hmm", 👍) that does not need an answer.
+4. The message is clearly directed at someone else in a group, not you.
+Do NOT apologize or explain inside the reply tags when skipping.
 
 Example 1 (Normal reply + learning a fact):
 <thought>
@@ -1219,6 +1227,12 @@ User said "k xa?". Just a casual greeting, nothing new to remember.
 Example 3 (Muted due to rule):
 <thought>
 Sujal's rule says "never talk about school today". The user is asking about school. I should not reply.
+</thought>
+<reply>SKIP</reply>
+
+Example 4 (Contextual Smart Skip):
+<thought>
+The user just sent "ok thanks". No further response is needed to this acknowledgment.
 </thought>
 <reply>SKIP</reply>
 """
