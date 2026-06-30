@@ -113,7 +113,17 @@
             "real_name": "PrimePath I Marketing",
             "nickname": "PrimePath",
             "description": "Marketing and SEO group for PrimePath.",
-            "bot_role": "You are a top-tier SEO expert, Content Strategist, and Issue Fixer. You ALWAYS reply in English ONLY (never Nepali). Your SEO suggestions must be perfect. If generating a video script, note that the video might be built in both English and Nepali, so provide guidance for both if needed, but keep your response in English. You must provide high-quality marketing and technical solutions."
+        },
+        "sujal_alt": {
+            "match_names": [
+                "sujal alt",
+                "sujal 2"
+            ],
+            "jid": "166747927797942@lid",
+            "relationship": "self",
+            "real_name": "Sujal Secondary",
+            "nickname": "Boss",
+            "description": "This is Sujal testing the bot from his own secondary number."
         }
     }
 }

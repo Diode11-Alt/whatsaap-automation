@@ -265,6 +265,17 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     if not bot_active:
         return {"status": "paused"}
 
+    # ── Intercept "ignore" command from user in any chat ──
+    if content and content.strip().lower() == "ignore":
+        if chat_jid not in bot_state.get('muted_jids', []):
+            if 'muted_jids' not in bot_state:
+                bot_state['muted_jids'] = []
+            bot_state['muted_jids'].append(chat_jid)
+            save_bot_state(bot_state)
+            send_whatsapp_message(chat_jid, "🤖 Muted this chat. I will not reply here anymore unless unmuted from all_data.")
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
     # ── Check whitelist / muting ──
     whitelist_jids = bot_state.get('reply_only_jids', [])
     if whitelist_jids and chat_jid not in whitelist_jids and chat_jid != all_data_jid:
