@@ -1049,7 +1049,7 @@ async def pending_messages_loop():
                         continue
 
                     # Generate reply
-                    raw_reply = get_ai_reply(system_prompt, [], final_payload, has_media=has_media, is_creator=(chat_jid==all_data_jid))
+                    raw_reply = get_ai_reply(system_prompt, [], final_payload, has_media=has_media)
                     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
                     if raw_reply is None:
