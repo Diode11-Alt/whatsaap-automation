@@ -23,6 +23,7 @@ import subprocess
 import re
 import json
 import random
+import agent_memory
 from datetime import datetime, timezone, timedelta
 import speech_recognition as sr
 from collections import defaultdict
@@ -872,13 +873,25 @@ def main():
                 else:
                     final_payload = combined_parts
 
-                # Fetch chat history (fresh, includes the new msgs now in DB)
-                chat_history = get_chat_history(chat_jid, limit=150)
+                # 1. Fetch decoupled chat history
+                chat_history = agent_memory.get_history(chat_jid, limit=16)
+
+                # 2. Retrieve RAG knowledge
+                top_chunks = agent_memory.retrieve_knowledge(str(final_payload), top_k=4)
+                if top_chunks:
+                    knowledge_text = "\n\n".join([f"[{c['source']}] {c['content']}" for c in top_chunks])
+                    system_prompt += f"\n\n<knowledge>\n{knowledge_text}\n</knowledge>\n"
+                    system_prompt += "RULES: If the answer is in <knowledge>, answer directly. If NOT, don't guess.\n"
+
+                # 3. Save incoming user message
+                agent_memory.save_message(chat_jid, "user", str(final_payload))
 
                 reply = get_ai_reply(system_prompt, chat_history, final_payload)
                 print(f"[AI reply raw] {str(reply)[:100]}")
 
                 if should_send(reply, group_type, chat_jid):
+                    # 4. Save outgoing assistant reply
+                    agent_memory.save_message(chat_jid, "assistant", reply.strip())
                     send_whatsapp_message(chat_jid, reply.strip())
                 else:
                     print(f"[skip reply] group={group_type} | reply={reply!r}")

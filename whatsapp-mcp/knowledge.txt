@@ -1,0 +1,8 @@
+Business Name: DIODE Innovations
+Working Hours: 9 AM to 6 PM (Sun-Fri)
+Support Email: support@diode.example.com
+
+DIODE specializes in building custom WhatsApp automations, AI-integrated workflows, and OS-level integrations.
+Pricing starts at $500 for a basic AI WhatsApp integration and scales up based on complexity.
+
+For custom projects, please book a meeting via our website. We do not provide free trials for custom builds.
