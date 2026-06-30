@@ -699,29 +699,30 @@ API_KEYS = {
     ] if k]
 }
 
-# Default model order (text-only) — priority: best Nepali output first
-# qwen/qwen-2.5-72b-instruct confirmed: replies in perfect Romanized Nepali style
+# Default model order (text-only)
+# Groq qwen/qwen3.6-27b: fast (free), supports Nepali well — confirmed on Groq's model list
+# OpenRouter qwen/qwen-2.5-72b-instruct: best Romanized Nepali output
 MODELS_TEXT = [
-    ("openrouter", "qwen/qwen-2.5-72b-instruct"),  # ✅ #1 — best Nepali, casual style
-    ("openrouter", "google/gemini-2.5-flash"),      # ✅ #2 — fast, multilingual
-    ("openrouter", "openai/gpt-4o-mini"),           # ✅ #3 — reliable
-    ("openrouter", "anthropic/claude-haiku-4-5"),   # ✅ #4 — quality fallback
-    ("groq",       "llama3-70b-8192"),              # fast if key valid
-    ("groq",       "qwen-qwq-32b"),                 # Groq Qwen if available
-    ("deepseek",   "deepseek-chat"),                # if has balance
+    ("groq",       "qwen/qwen3.6-27b"),             # ✅ #1 — Groq (fast, free, good Nepali)
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   # ✅ #2 — Best Romanized Nepali
+    ("groq",       "llama-3.3-70b-versatile"),       # ✅ #3 — Groq fast fallback
+    ("openrouter", "google/gemini-2.5-flash"),       # ✅ #4 — multilingual
+    ("openrouter", "openai/gpt-4o-mini"),            # ✅ #5
+    ("openrouter", "anthropic/claude-haiku-4-5"),    # ✅ #6
+    ("groq",       "meta-llama/llama-4-scout-17b-16e-instruct"),  # Groq bonus
+    ("deepseek",   "deepseek-chat"),
     ("gemini",     "gemini-1.5-flash"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("openrouter", "openai/gpt-4o"),
-    ("openrouter", "meta-llama/llama-3.3-70b-instruct"),
     ("openrouter", "openrouter/auto"),
 ]
 
 # Vision model order (for image/video messages)
 MODELS_VISION = [
-    ("openrouter", "google/gemini-2.5-flash"),      # ✅ best multimodal
-    ("openrouter", "qwen/qwen-2.5-72b-instruct"),   # ✅ vision + Nepali
-    ("openrouter", "openai/gpt-4o-mini"),           # ✅ vision capable
-    ("openrouter", "anthropic/claude-haiku-4-5"),   # ✅ vision capable
+    ("openrouter", "google/gemini-2.5-flash"),       # ✅ best multimodal
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"),    # ✅ vision + Nepali
+    ("openrouter", "openai/gpt-4o-mini"),            # ✅ vision capable
+    ("openrouter", "anthropic/claude-haiku-4-5"),    # ✅ vision capable
     ("openrouter", "openai/gpt-4o"),
     ("openrouter", "anthropic/claude-3.5-sonnet"),
     ("gemini",     "gemini-1.5-flash"),
