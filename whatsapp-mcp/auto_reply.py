@@ -228,36 +228,39 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
 
     # ── Parse commands from Sujal's own messages in "All data" ──
-    is_sujal = is_from_me or (sender and any(sender.startswith(sid) for sid in ["166747927797942", "181101876240397"]))
-    if is_sujal:
-        if chat_jid == all_data_jid and content.strip():
-            if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
-                return {"status": "ignored"}
-                
-            new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
-            if cmd_response:
-                bot_state = new_state
-                bot_active = bot_state['active']
-                save_bot_state(bot_state)
-                print(f"[COMMAND] {content!r} → {cmd_response}")
-                
-                if cmd_response.startswith("AI_CONFIRM_RULE:"):
-                    rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
-                    prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
-                    conf_reply = get_ai_reply(prompt, [], "Acknowledge the rule.", has_media=False)
-                    if conf_reply:
-                        clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
-                        clean_conf = re.sub(r'<reply>(.*?)</reply>', r' ', clean_conf, flags=re.DOTALL).strip()
-                        send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
-                    else:
-                        send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
+    is_sujal = (sender and any(sender.startswith(sid) for sid in ["166747927797942", "181101876240397"]))
+    if is_sujal and chat_jid == all_data_jid and content.strip():
+        if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
+            return {"status": "ignored"}
+            
+        new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
+        if cmd_response:
+            bot_state = new_state
+            bot_active = bot_state['active']
+            save_bot_state(bot_state)
+            print(f"[COMMAND] {content!r} → {cmd_response}")
+            
+            if cmd_response.startswith("AI_CONFIRM_RULE:"):
+                rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
+                prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
+                conf_reply = get_ai_reply(prompt, [], "Acknowledge the rule.", has_media=False)
+                if conf_reply:
+                    clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
+                    clean_conf = re.sub(r'<reply>(.*?)</reply>', r' ', clean_conf, flags=re.DOTALL).strip()
+                    send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
                 else:
-                    send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
+                    send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
             else:
-                # If it's not a recognized command, store it directly into long-term memory facts
-                store_direct_fact(all_data_jid, content.strip())
-                send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
+                send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
+        else:
+            # If it's not a recognized command, store it directly into long-term memory facts
+            store_direct_fact(all_data_jid, content.strip())
+            send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
         return {"status": "ok"}
+        
+    if is_from_me:
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
 
     if not bot_active:
         return {"status": "paused"}

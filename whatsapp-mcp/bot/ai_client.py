@@ -55,10 +55,15 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
     # Group cooldown: don't spam groups
     if '@g.us' in chat_jid and group_type in ('CLASS', 'COMPANY'):
         if chat_jid != "120363409545685990@g.us":
+            import random
             now = time.time()
             last = _group_last_reply.get(chat_jid, 0)
-            if now - last < GROUP_COOLDOWN_SECONDS:
-                print(f"[cooldown] Skipping group reply, last reply was {now - last:.0f}s ago (cooldown={GROUP_COOLDOWN_SECONDS}s)")
+            
+            # Short, random cooldown between 15s to 40s to feel more natural
+            current_cooldown = random.randint(15, 40)
+            
+            if now - last < current_cooldown:
+                print(f"[cooldown] Skipping group reply, last reply was {now - last:.0f}s ago (random cooldown={current_cooldown}s)")
                 return False
             _group_last_reply[chat_jid] = now
     
