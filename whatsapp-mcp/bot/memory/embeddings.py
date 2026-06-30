@@ -48,7 +48,9 @@ def init_db():
 init_db()
 
 def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
-    """Get vector embedding using Gemini API."""
+    """Get vector embedding using Gemini API with exponential backoff for rate limits."""
+    import time
+    
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     if not GEMINI_API_KEY:
         print("Warning: GEMINI_API_KEY not set.")
@@ -63,14 +65,28 @@ def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[floa
         "taskType": task_type
     }
     
-    try:
-        resp = requests.post(url, json=payload, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("embedding", {}).get("values", [])
-    except Exception as e:
-        print(f"Error getting embedding: {e}")
-        return []
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 429:
+                # Rate limited, back off and retry
+                wait_time = (2 ** attempt) + 1  # 2, 3, 5, 9, 17 seconds
+                print(f"Embedding API rate limited (429). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+                
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("embedding", {}).get("values", [])
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Error getting embedding after {max_retries} attempts: {e}")
+            else:
+                print(f"Error getting embedding (attempt {attempt+1}): {e}. Retrying...")
+                time.sleep(2)
+                
+    return []
 
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     if not vec_a or not vec_b or len(vec_a) != len(vec_b):
