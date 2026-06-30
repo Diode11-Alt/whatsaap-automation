@@ -48,42 +48,45 @@ def init_db():
 init_db()
 
 def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
-    """Get vector embedding using Gemini API with exponential backoff for rate limits."""
+    """Get vector embedding using OpenRouter API with exponential backoff for rate limits."""
     import time
     
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    if not GEMINI_API_KEY:
-        print("Warning: GEMINI_API_KEY not set.")
+    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+    if not OPENROUTER_API_KEY:
+        print("Warning: OPENROUTER_API_KEY not set for embeddings.")
         return []
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key={GEMINI_API_KEY}"
+    url = "https://openrouter.ai/api/v1/embeddings"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
     payload = {
-        "model": "models/gemini-embedding-2",
-        "content": {
-            "parts": [{"text": text}]
-        },
-        "taskType": task_type
+        "model": "google/gemini-embedding-2",
+        "input": text
     }
     
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, headers=headers, json=payload, timeout=10)
             if resp.status_code == 429:
-                # Rate limited, back off and retry
                 wait_time = (2 ** attempt) + 1  # 2, 3, 5, 9, 17 seconds
-                print(f"Embedding API rate limited (429). Retrying in {wait_time}s...")
+                print(f"OpenRouter Embedding API rate limited (429). Retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
                 
             resp.raise_for_status()
             data = resp.json()
-            return data.get("embedding", {}).get("values", [])
+            # OpenRouter standard format: {"data": [{"embedding": [float, ...], "index": 0}]}
+            if "data" in data and len(data["data"]) > 0:
+                return data["data"][0].get("embedding", [])
+            return []
         except Exception as e:
             if attempt == max_retries - 1:
-                print(f"Error getting embedding after {max_retries} attempts: {e}")
+                print(f"Error getting OpenRouter embedding after {max_retries} attempts: {e}")
             else:
-                print(f"Error getting embedding (attempt {attempt+1}): {e}. Retrying...")
+                print(f"Error getting OpenRouter embedding (attempt {attempt+1}): {e}. Retrying...")
                 time.sleep(2)
                 
     return []
