@@ -421,19 +421,31 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
                 real = profile.get('real_name', '').lower()
                 if nick in t or real in t or contact_key in t:
                     jid = profile.get('jid', '')
-                    if jid and jid not in state['muted_jids']:
+                    if jid and jid not in state.get('muted_jids', []):
+                        if 'muted_jids' not in state: state['muted_jids'] = []
                         state['muted_jids'].append(jid)
                     return state, f"Muted {profile.get('nickname', contact_key)}. Will not reply."
     # --- Unmute a contact ---
-    for keyword in ['unmute', 'reply to', 'start replying to']:
-        if keyword in t:
+    for keyword in ['unmute', 'start replying to', 'reply to']:
+        # But distinguish from "reply ONLY to"
+        if keyword in t and 'only' not in t:
             for contact_key, profile in contact_memory.items():
                 nick = profile.get('nickname', contact_key).lower()
                 real = profile.get('real_name', '').lower()
                 if nick in t or real in t or contact_key in t:
                     jid = profile.get('jid', '')
-                    state['muted_jids'] = [j for j in state['muted_jids'] if j != jid]
+                    state['muted_jids'] = [j for j in state.get('muted_jids', []) if j != jid]
                     return state, f"Unmuted {profile.get('nickname', contact_key)}."
+    # --- Reply ONLY to (Whitelist mode) ---
+    if 'reply only to' in t:
+        for contact_key, profile in contact_memory.items():
+            nick = profile.get('nickname', contact_key).lower()
+            real = profile.get('real_name', '').lower()
+            if nick in t or real in t or contact_key in t:
+                jid = profile.get('jid', '')
+                state['reply_only_jids'] = [jid]
+                state['active'] = True # Ensure bot is active
+                return state, f"Whitelist Mode: Now ONLY replying to {profile.get('nickname', contact_key)}. Everyone else is paused."
     # --- Group stop/start ---
     if t in ['stop group reply', 'stop group', 'mute group', 'mute groups']:
         state['mute_all_groups'] = True
@@ -444,13 +456,16 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
     # --- Status check ---
     if t in ['status', 'state', 'info']:
         muted = state.get('muted_jids', [])
+        whitelist = state.get('reply_only_jids', [])
         g_mute = state.get('mute_all_groups', False)
         instr = state.get('general_instructions', [])
-        return state, f"Active: {state['active']}. Group Mute: {g_mute}. Muted JIDs: {muted or 'none'}. Custom Rules: {len(instr)}"
+        return state, f"Active: {state['active']}. Group Mute: {g_mute}. Whitelist: {whitelist or 'none'}. Muted: {muted or 'none'}. Custom Rules: {len(instr)}"
     
-    if t in ['clear rules', 'clear instructions', 'reset rules']:
+    if t in ['clear rules', 'clear instructions', 'reset rules', 'reset all']:
         state['general_instructions'] = []
-        return state, "All custom AI rules have been cleared."
+        state['reply_only_jids'] = []
+        state['muted_jids'] = []
+        return state, "All custom AI rules, mutes, and whitelists have been cleared."
 
     if t in ['generate marketing', '!generate marketing']:
         import subprocess
@@ -997,6 +1012,10 @@ def main():
                 # ── Parse commands from Sujal's own messages in "All data" ──
                 if is_from_me:
                     if chat_jid == all_data_jid and content.strip():
+                        # Prevent infinite loop: ignore bot's own responses
+                        if content.startswith("🤖") or content.startswith("Huss boss") or content.startswith("Bot ") or content.startswith("Muted") or content.startswith("Unmuted"):
+                            continue
+                            
                         new_state, cmd_response = parse_command(content, bot_state, CONTACT_MEMORY)
                         if cmd_response:
                             bot_state = new_state
@@ -1013,11 +1032,11 @@ def main():
                                     # Strip tags if it hallucinated them
                                     clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
                                     clean_conf = re.sub(r'<reply>(.*?)</reply>', r'\1', clean_conf, flags=re.DOTALL).strip()
-                                    send_whatsapp_message(chat_jid, clean_conf)
+                                    send_whatsapp_message(chat_jid, f"🤖 {clean_conf}")
                                 else:
-                                    send_whatsapp_message(chat_jid, f"Huss boss, noted the rule: {rule_text}")
+                                    send_whatsapp_message(chat_jid, f"🤖 Huss boss, noted the rule: {rule_text}")
                             else:
-                                send_whatsapp_message(chat_jid, cmd_response)
+                                send_whatsapp_message(chat_jid, f"🤖 {cmd_response}")
                     # Legacy global commands from anywhere
                     elif content.strip().lower() == '#stop':
                         bot_active = False
@@ -1034,7 +1053,12 @@ def main():
                 if not bot_active:
                     continue  # Bot is paused
 
-                # ── Check per-contact muting ──
+                # ── Check whitelist / muting ──
+                whitelist_jids = bot_state.get('reply_only_jids', [])
+                if whitelist_jids and chat_jid not in whitelist_jids and chat_jid != all_data_jid:
+                    replied_ids.add(msg_id)
+                    continue
+
                 muted_jids = bot_state.get('muted_jids', [])
                 if chat_jid in muted_jids:
                     replied_ids.add(msg_id)
