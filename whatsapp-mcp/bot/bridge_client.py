@@ -38,6 +38,14 @@ def send_whatsapp_message(chat_jid: str, content: str):
     except Exception as e:
         print(f"[send error] {e}")
 
+def send_presence(chat_jid: str, state: str = "typing"):
+    """Send presence indicator to a chat (typing, recording, paused)."""
+    try:
+        payload = {"recipient": chat_jid, "state": state}
+        requests.post(f"{BRIDGE_URL}/api/presence", json=payload, timeout=5)
+    except Exception as e:
+        print(f"[presence error] {e}")
+
 def download_media(message_id: str, chat_jid: str) -> str | None:
     try:
         response = requests.post(DOWNLOAD_API_URL,

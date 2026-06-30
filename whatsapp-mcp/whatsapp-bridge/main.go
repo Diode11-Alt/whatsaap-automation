@@ -837,6 +837,62 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		json.NewEncoder(w).Encode(msgs)
 	})
 
+	// Handler for sending chat presence (typing/recording)
+	http.HandleFunc("/api/presence", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Recipient string `json:"recipient"`
+			State     string `json:"state"` // "typing", "recording", "paused"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var recipientJID types.JID
+		var err error
+		isJID := strings.Contains(req.Recipient, "@")
+		if isJID {
+			recipientJID, err = types.ParseJID(req.Recipient)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Error parsing JID: %v", err), http.StatusBadRequest)
+				return
+			}
+		} else {
+			recipientJID = types.JID{User: req.Recipient, Server: "s.whatsapp.net"}
+		}
+
+		var presence types.ChatPresence
+		var media types.ChatPresenceMedia
+		switch req.State {
+		case "typing":
+			presence = types.ChatPresenceComposing
+			media = types.ChatPresenceMediaText
+		case "recording":
+			presence = types.ChatPresenceComposing
+			media = types.ChatPresenceMediaAudio
+		case "paused":
+			presence = types.ChatPresencePaused
+			media = types.ChatPresenceMediaText
+		default:
+			presence = types.ChatPresenceComposing
+			media = types.ChatPresenceMediaText
+		}
+
+		err = client.SendChatPresence(recipientJID, presence, media)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+	})
+
 	// Handler for sending messages
 	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests

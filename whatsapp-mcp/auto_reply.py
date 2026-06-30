@@ -18,7 +18,7 @@ from bot.contacts import CONTACT_MEMORY, get_contact_prompt
 from bot.classify import classify_group
 from bot.routines import process_auto_routines
 from bot.history import get_chat_history, get_chat_meta
-from bot.bridge_client import send_whatsapp_message, download_media
+from bot.bridge_client import send_whatsapp_message, download_media, send_presence
 from bot.media import process_media
 from bot.ai_client import get_ai_reply, should_send, clean_whatsapp_formatting
 from bot.state import load_bot_state, save_bot_state, parse_command
@@ -128,10 +128,22 @@ async def pending_messages_loop():
                         f.write(f"AI Thought: {thought}\n")
                         f.write(f"AI Reply: {reply}\n\n")
 
-                    # 5. Send message
+                    # 5. Send message with Typing Simulation
                     if should_send(reply, group_type, chat_jid):
-                        send_whatsapp_message(chat_jid, reply.strip())
-                        print(f"[sent] -> {chat_jid}: {reply.strip()[:60]!r}")
+                        reply = reply.strip()
+                        
+                        # Calculate typing delay (approx 60 WPM -> ~5 chars/sec)
+                        # Min 0.5s, Max 5.0s so it feels natural but not annoying
+                        typing_delay = max(0.5, min(len(reply) / 15.0, 5.0))
+                        
+                        print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
+                        send_presence(chat_jid, "typing")
+                        await asyncio.sleep(typing_delay)
+                        
+                        send_whatsapp_message(chat_jid, reply)
+                        send_presence(chat_jid, "paused")
+                        
+                        print(f"[sent] -> {chat_jid}: {reply[:60]!r}")
                     else:
                         print(f"[skip reply] group={group_type} | reply={reply!r}")
 
