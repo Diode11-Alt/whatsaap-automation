@@ -431,7 +431,9 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
     if 'general_instructions' not in state:
         state['general_instructions'] = []
     state['general_instructions'].append(text.strip())
-    return state, f"Understood! New AI rule added:\n{text.strip()}\n\n(Send 'clear rules' to remove all)"
+    
+    # We return a special flag so the main loop can generate an AI response.
+    return state, f"AI_CONFIRM_RULE: {text.strip()}"
 
 # ─── Proactive Auto-Texting Routine Engine ────────────────────────────────────
 
@@ -935,7 +937,21 @@ def main():
                             bot_active = bot_state['active']
                             save_bot_state(bot_state)
                             print(f"[COMMAND] {content!r} → {cmd_response}")
-                            send_whatsapp_message(chat_jid, cmd_response)
+                            
+                            if cmd_response.startswith("AI_CONFIRM_RULE:"):
+                                rule_text = cmd_response.replace("AI_CONFIRM_RULE:", "").strip()
+                                prompt = f"You are Sujal's AI assistant. He just added a new rule for you: '{rule_text}'. Acknowledge this rule in a short, obedient, slightly casual way (Romanized Nepali or English). Just 1 sentence. Start with 'Huss boss' or similar."
+                                conf_reply = get_ai_reply(prompt, [], "Acknowledge the rule.", has_media=False)
+                                import re
+                                if conf_reply:
+                                    # Strip tags if it hallucinated them
+                                    clean_conf = re.sub(r'<thought>.*?</thought>', '', conf_reply, flags=re.DOTALL)
+                                    clean_conf = re.sub(r'<reply>(.*?)</reply>', r'\1', clean_conf, flags=re.DOTALL).strip()
+                                    send_whatsapp_message(chat_jid, clean_conf)
+                                else:
+                                    send_whatsapp_message(chat_jid, f"Huss boss, noted the rule: {rule_text}")
+                            else:
+                                send_whatsapp_message(chat_jid, cmd_response)
                     # Legacy global commands from anywhere
                     elif content.strip().lower() == '#stop':
                         bot_active = False
