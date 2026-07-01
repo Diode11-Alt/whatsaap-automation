@@ -67,55 +67,11 @@ def get_randomized_trigger_time(today_str: str, r_id: str, start_t: str, end_t: 
     trigger_m = trigger_mins % 60
     return f"{trigger_h:02d}:{trigger_m:02d}"
 
-def process_status_story_posting(state, today_str, current_time_str):
-    """Randomly generate and post a relatable text status/story once a day."""
-    if state.get("last_status_post_date") == today_str:
-        return
-        
-    trigger_time = get_randomized_trigger_time(today_str, "status_post", "10:00", "22:00")
-    
-    if trigger_time <= current_time_str <= "22:00":
-        print(f"[status-routine] Firing WhatsApp status post (Scheduled for {trigger_time})")
-        
-        status_prompt = (
-            "You are Sujal Mainali (alias DIODE), a Computer Science student at IIMS College in Kathmandu, Nepal. "
-            "Write a single WhatsApp status/story update. It must be a short, casual thought (under 15 words) "
-            "about coding, debugging, exams, late nights, coffee, AI, or general life. "
-            "It must be casual, written in Romanized Nepali (lowercase, casual/chat format, no formal punctuation or tags, "
-            "no emojis or at most one very simple natural one like ☕ or 💻). "
-            "Examples:\n"
-            "- 'chiso chiso weather ra coding, perfect vibes'\n"
-            "- 'ai agents are actually changing everything fr'\n"
-            "- 'bug fix garda garda rat gayo'\n"
-            "- 'aaja ko din pure coding mai bitxa hola'\n\n"
-            "Return ONLY the final status text. No thoughts, no tags, no quotes."
-        )
-        
-        reply = get_ai_reply(status_prompt, [], "[SYSTEM: Generate status]")
-        if reply:
-            import re
-            reply = reply.strip()
-            reply = re.sub(r'<thought>.*?</thought>', '', reply, flags=re.DOTALL)
-            reply = re.sub(r'["\'`“‘’”]', '', reply)
-            reply = reply.strip()
-            
-            if reply:
-                send_whatsapp_message("status@broadcast", reply)
-                print(f"[status-routine] Posted status: {reply!r}")
-                state["last_status_post_date"] = today_str
-                save_routines_state(state)
-
 def process_auto_routines():
     state = load_routines_state()
     now = datetime.now(NPT_TZ)
     current_time_str = now.strftime("%H:%M")
     today_str = now.strftime("%Y-%m-%d")
-
-    # Random WhatsApp Status posting check
-    try:
-        process_status_story_posting(state, today_str, current_time_str)
-    except Exception as e:
-        print(f"[status-routine] Error during status post: {e}")
 
     # Daily fact pruning & consolidation check
     if state.get("last_prune_date") != today_str:

@@ -270,6 +270,18 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     sender     = msg.get('sender', '')
     filename   = msg.get('filename', '')
 
+    # ── Intercept status broadcast updates ──
+    if chat_jid == "status@broadcast":
+        is_sujal = (sender and any(sender.startswith(sid) for sid in ["166747927797942", "181101876240397"])) or is_from_me
+        if is_sujal:
+            status_desc = content if content else f"[{media_type} status]"
+            notification = f"🤖 You posted a status: '{status_desc}'"
+            print(f"[status-monitor] User posted status: {status_desc}")
+            target_jid = all_data_jid if all_data_jid else "166747927797942@lid"
+            send_whatsapp_message(target_jid, notification)
+        replied_ids.add(msg_id)
+        return {"status": "ignored"}
+
     # Background task to embed text messages immediately for Vector Search
     if content and not media_type:
         background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
