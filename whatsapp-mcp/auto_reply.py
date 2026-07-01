@@ -5,6 +5,7 @@ auto_reply.py - Thin entrypoint for WhatsApp Auto-Reply Bot.
 import os
 import re
 import time
+import random
 import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks
@@ -185,12 +186,12 @@ async def pending_messages_loop():
                                 
                             send_presence(chat_jid, "paused")
                         else:
-                            # Standard Text Message
-                            typing_delay = max(4.0, min(len(reply) / 10.0, 10.0))
+                            # Standard Text Message — dynamic human pacing (~0.07s per char + slight jitter)
+                            typing_delay = max(1.5, min(len(reply) / 14.0, 8.0)) + random.uniform(-0.2, 0.4)
                             
                             print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
                             send_presence(chat_jid, "typing")
-                            await asyncio.sleep(typing_delay)
+                            await asyncio.sleep(max(1.0, typing_delay))
                             
                             send_whatsapp_message(chat_jid, reply)
                             send_presence(chat_jid, "paused")

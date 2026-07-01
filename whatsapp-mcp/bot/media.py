@@ -33,7 +33,8 @@ def process_media(file_path: str, media_type: str) -> list | None:
 
         elif media_type == "audio":
             wav = file_path + ".wav"
-            subprocess.run(["ffmpeg", "-y", "-i", file_path, wav],
+            # Convert to 16kHz mono audio for optimal speech recognition accuracy
+            subprocess.run(["ffmpeg", "-y", "-i", file_path, "-ar", "16000", "-ac", "1", wav],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             if not os.path.exists(wav):
@@ -47,12 +48,18 @@ def process_media(file_path: str, media_type: str) -> list | None:
                 
                 full_transcription = []
                 groq_key = os.environ.get("GROQ_API_KEY", "")
+                openai_key = os.environ.get("OPENAI_API_KEY", "")
+                gemini_key = os.environ.get("GEMINI_API_KEY", "")
+                
+                # Vocabulary biasing prompt dramatically improves accuracy for Nepanglish and names
+                whisper_prompt = "WhatsApp voice note in Nepali, English, or Romanized Nepali (Nepanglish). Common names & terms: Sujal, Kanxo, Yashoda, sani, maya, dost, bhai, sir, hajur, k xa, thik xa, khana khayeu, gari, bholi, kaam, exam, IIMS, Diode, primepath, census."
                 
                 for idx, chunk in enumerate(chunks):
                     chunk_wav = f"{file_path}_chunk{idx}.wav"
                     chunk.export(chunk_wav, format="wav")
                     
                     text_chunk = ""
+                    # 1. Try Groq Whisper (Fastest & high accuracy)
                     if groq_key:
                         try:
                             with open(chunk_wav, 'rb') as audio_file:
@@ -60,17 +67,61 @@ def process_media(file_path: str, media_type: str) -> list | None:
                                     'https://api.groq.com/openai/v1/audio/transcriptions',
                                     headers={'Authorization': f'Bearer {groq_key}'},
                                     files={'file': (os.path.basename(chunk_wav), audio_file, 'audio/wav')},
-                                    data={'model': 'whisper-large-v3', 'response_format': 'text'},
+                                    data={'model': 'whisper-large-v3', 'prompt': whisper_prompt, 'response_format': 'text'},
                                     timeout=60
                                 )
                             if resp.status_code == 200:
                                 text_chunk = resp.text.strip()
                             else:
-                                print(f"[whisper error] HTTP {resp.status_code}: {resp.text}")
+                                print(f"[whisper groq error] HTTP {resp.status_code}: {resp.text}")
                         except Exception as e:
-                            print(f"[whisper chunk error] {e}")
+                            print(f"[whisper groq chunk error] {e}")
                     
-                    # Fallback to Google if Groq failed or not configured
+                    # 2. Try OpenAI Whisper if Groq failed
+                    if not text_chunk and openai_key:
+                        try:
+                            with open(chunk_wav, 'rb') as audio_file:
+                                resp = requests.post(
+                                    'https://api.openai.com/v1/audio/transcriptions',
+                                    headers={'Authorization': f'Bearer {openai_key}'},
+                                    files={'file': (os.path.basename(chunk_wav), audio_file, 'audio/wav')},
+                                    data={'model': 'whisper-1', 'prompt': whisper_prompt, 'response_format': 'text'},
+                                    timeout=60
+                                )
+                            if resp.status_code == 200:
+                                text_chunk = resp.text.strip()
+                            else:
+                                print(f"[whisper openai error] HTTP {resp.status_code}: {resp.text}")
+                        except Exception as e:
+                            print(f"[whisper openai chunk error] {e}")
+
+                    # 3. Try Gemini Multimodal Audio Transcription if Whisper failed
+                    if not text_chunk and gemini_key:
+                        try:
+                            with open(chunk_wav, 'rb') as audio_file:
+                                b64_audio = base64.b64encode(audio_file.read()).decode()
+                            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+                            payload = {
+                                "contents": [{
+                                    "parts": [
+                                        {"text": f"Listen to this WhatsApp audio voice note carefully. {whisper_prompt} Transcribe exactly what is being said. Output ONLY the exact transcribed text, nothing else."},
+                                        {"inline_data": {"mime_type": "audio/wav", "data": b64_audio}}
+                                    ]
+                                }]
+                            }
+                            resp = requests.post(url, json=payload, timeout=60)
+                            if resp.status_code == 200:
+                                res_json = resp.json()
+                                candidates = res_json.get("candidates", [])
+                                if candidates and "content" in candidates[0]:
+                                    parts = candidates[0]["content"].get("parts", [])
+                                    if parts and "text" in parts[0]:
+                                        text_chunk = parts[0]["text"].strip()
+                                        print(f"[gemini audio transcribed] {text_chunk}")
+                        except Exception as e:
+                            print(f"[gemini audio chunk error] {e}")
+                    
+                    # 4. Fallback to Google Speech Recognition if all LLMs failed
                     if not text_chunk:
                         try:
                             rec = sr.Recognizer()
@@ -92,8 +143,8 @@ def process_media(file_path: str, media_type: str) -> list | None:
                 
                 final_text = " ".join(full_transcription).strip()
                 if final_text:
-                    print(f"[transcribed] Length: {len(final_text)} chars")
-                    return [{"type": "text", "text": f'[Voice note says: "{final_text}"]'}]
+                    print(f"[transcribed] Length: {len(final_text)} chars: {final_text}")
+                    return [{"type": "text", "text": f'[Voice Note (Audio) Transcript: "{final_text}" — Note: Respond to what they said naturally in character without explicitly stating "I heard your voice note" unless relevant.]'}]
                 else:
                     return [{"type": "text", "text": "[Voice note: couldn't transcribe audio]"}]
                     

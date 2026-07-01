@@ -43,6 +43,15 @@ def get_contact_prompt(chat_name: str, chat_jid: str) -> str | None:
                         persona_text += f"- {key.replace('_', ' ').title()}: {value}\n"
                     prompt += persona_text
                     
+                # Dynamically enrich prompt with recent learned facts from SQLite
+                try:
+                    from bot.memory.facts_store import get_learned_context
+                    recent_facts = get_learned_context(chat_jid, "")
+                    if recent_facts and len(recent_facts.strip()) > 10:
+                        prompt += f"\n\n<REALTIME_CONTACT_INTELLIGENCE>\n{recent_facts.strip()}\n</REALTIME_CONTACT_INTELLIGENCE>"
+                except Exception as e:
+                    print(f"[memory] Failed to enrich contact prompt with SQLite facts: {e}")
+                    
                 print(f"[memory] ★ Matched contact profile: {contact_key} for {chat_name!r}")
                 return prompt
     return None
