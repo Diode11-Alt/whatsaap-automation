@@ -123,7 +123,8 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
 API_URLS = {
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
     "groq":       "https://api.groq.com/openai/v1/chat/completions",
-    "deepseek":   "https://api.deepseek.com/v1/chat/completions"
+    "deepseek":   "https://api.deepseek.com/v1/chat/completions",
+    "puter":      "https://api.puter.com/puterai/openai/v1/chat/completions"
 }
 
 def get_ai_reply(system_prompt: str, chat_history: list[dict],

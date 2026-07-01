@@ -47,6 +47,10 @@ API_KEYS = {
         os.environ.get("OPENROUTER_API_KEY_5"),
         os.environ.get("OPENROUTER_API_KEY_6"),
         os.environ.get("OPENROUTER_API_KEY")
+    ] if k],
+    "puter": [k for k in [
+        os.environ.get("PUTER_AUTH_TOKEN"),
+        os.environ.get("PUTER_API_KEY")
     ] if k]
 }
 
@@ -54,6 +58,8 @@ MODELS_TEXT = [
     ("openrouter", "google/gemini-2.5-flash"),      # Extremely fast, great at Nepali
     ("openrouter", "qwen/qwen-2.5-72b-instruct"),   # Powerful open-source
     ("openrouter", "openai/gpt-4o-mini"),           # Cheap, smart, fast
+    ("puter",      "gpt-5.4-nano"),                 # Puter AI free/fast tier
+    ("puter",      "gpt-4o-mini"),                  # Puter AI fallback
     ("openrouter", "anthropic/claude-3.5-haiku"),   # Super fast Anthropic
     ("openrouter", "meta-llama/llama-3.3-70b-instruct"), # Best Llama 3 on OpenRouter
     ("groq",       "llama-3.3-70b-versatile"),      # Fast free fallback
@@ -69,6 +75,7 @@ MODELS_TEXT = [
 MODELS_VISION = [
     ("openrouter", "google/gemini-2.5-flash"),      # Excellent vision, fast
     ("openrouter", "openai/gpt-4o-mini"),           # Great and cheap vision
+    ("puter",      "gpt-4o-mini"),                  # Puter AI vision
     ("openrouter", "openai/gpt-4o"),                # Premium vision
     ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium vision
     ("openrouter", "qwen/qwen-vl-plus"),            # Qwen Vision specifically
