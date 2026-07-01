@@ -5,3 +5,5 @@ fastapi
 uvicorn
 pydub
 aiofiles
+edge-tts
+gTTS

@@ -31,11 +31,15 @@ def send_whatsapp_message(chat_jid: str, content: str, media_path: str = ""):
     try:
         payload = {"recipient": chat_jid, "message": content}
         if media_path:
+            payload["media_path"] = media_path
             payload["mediaPath"] = media_path
             
         resp = requests.post(f"{BRIDGE_URL}/api/send", json=payload, timeout=10)
         if resp.status_code == 200:
-            print(f"[sent] -> {chat_jid}: {content!r}")
+            if media_path:
+                print(f"[sent media/voice note] -> {chat_jid}: {media_path!r}")
+            else:
+                print(f"[sent] -> {chat_jid}: {content!r}")
         else:
             print(f"[send error] API returned {resp.status_code}: {resp.text}")
     except Exception as e:
