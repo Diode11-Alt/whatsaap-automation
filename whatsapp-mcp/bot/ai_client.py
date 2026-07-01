@@ -71,6 +71,23 @@ def enforce_clean_language(text: str, group_type: str, is_audio: bool = False) -
         text = re.sub(r'\bgandu\b', 'dost', text, flags=re.IGNORECASE)
         # Clean up double spaces left by removal
         text = re.sub(r'\s{2,}', ' ', text).strip()
+        
+    # 3. Strip out hallucinated bracketed action descriptions like [Acknowledges audio...], [Voice note...], [Sujal]:
+    text = re.sub(r'\[(?:Acknowledges|Voice note|Sujal|me|AI|system|thought|reply|audio).*?\](?::\s*)?', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    
+    # 4. Prevent quote bleed / prompt regurgitation: if model regurgitates system rules or repeats phrases in a loop
+    regurgitation_triggers = [
+        "visa number ra passport number confidential",
+        "arun daju lai k bhayo",
+        "tyo ta mildaina ni dost",
+        "private kura ra credential",
+        "pokhara gaako chaina maile kaam gardai xu"
+    ]
+    if any(trigger in text.lower() for trigger in regurgitation_triggers):
+        print(f"[REGURGITATION BLOCKED] Prevented prompt regurgitation in reply: {text[:60]!r}")
+        return "Oii k xa" if len(text) > 100 else "k xa dost"
+        
     return text
 
 def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> bool:

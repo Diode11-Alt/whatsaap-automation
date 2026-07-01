@@ -56,7 +56,8 @@ MODELS_TEXT = [
     ("openrouter", "openai/gpt-4o-mini"),           # Cheap, smart, fast
     ("openrouter", "anthropic/claude-3.5-haiku"),   # Super fast Anthropic
     ("openrouter", "meta-llama/llama-3.3-70b-instruct"), # Best Llama 3 on OpenRouter
-    ("gemini",     "gemini-1.5-flash"),             # Free fallback
+    ("gemini",     "gemini-2.0-flash"),             # Free fallback (next-gen)
+    ("gemini",     "gemini-1.5-flash"),             # Free fallback (legacy)
     ("groq",       "llama-3.3-70b-versatile"),      # Free fallback
     ("deepseek",   "deepseek-chat"),                # DeepSeek native
     ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium tier
@@ -71,7 +72,8 @@ MODELS_VISION = [
     ("openrouter", "openai/gpt-4o"),                # Premium vision
     ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium vision
     ("openrouter", "qwen/qwen-vl-plus"),            # Qwen Vision specifically
-    ("gemini",     "gemini-1.5-flash"),             # Free tier vision
+    ("gemini",     "gemini-2.0-flash"),             # Free tier vision (next-gen)
+    ("gemini",     "gemini-1.5-flash"),             # Free tier vision (legacy)
 ]
 
 # ─── RAG Layer Configuration ─────────────────────────────────────────────────
