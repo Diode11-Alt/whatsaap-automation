@@ -49,6 +49,25 @@ def clean_whatsapp_formatting(text: str) -> str:
     
     return text.strip()
 
+def enforce_clean_language(text: str, group_type: str, is_audio: bool = False) -> str:
+    """Enforce zero vulgarity in group chats and audio voice notes."""
+    if not text:
+        return ""
+    # In groups or audio voice notes, strictly scrub out vulgar/rough slang
+    if group_type != "private" or is_audio or "<voice>" in text.lower():
+        import re
+        # Replace common rough Nepali/English slang with friendly clean terms
+        text = re.sub(r'\bmu[jg]i\b', 'dost', text, flags=re.IGNORECASE)
+        text = re.sub(r'\brandi\b', 'bro', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bmachikne\b', 'yaaar', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bmadarchod\b', 'bhai', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bbitch\b', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bfuck(?:ing)?\b', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bgandu\b', 'dost', text, flags=re.IGNORECASE)
+        # Clean up double spaces left by removal
+        text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
+
 def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> bool:
     """Filter out SKIP signals, empty replies, and enforce group cooldowns."""
     if not reply_text:

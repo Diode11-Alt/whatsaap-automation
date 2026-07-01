@@ -21,7 +21,7 @@ from bot.routines import process_auto_routines
 from bot.history import get_chat_history, get_chat_meta
 from bot.bridge_client import send_whatsapp_message, download_media, send_presence
 from bot.media import process_media
-from bot.ai_client import get_ai_reply, should_send, clean_whatsapp_formatting
+from bot.ai_client import get_ai_reply, should_send, clean_whatsapp_formatting, enforce_clean_language
 from bot.state import load_bot_state, save_bot_state, parse_command
 from bot.knowledge import load_knowledge
 from bot.memory.retrieval import get_context_for_reply, embed_and_store
@@ -104,6 +104,7 @@ async def pending_messages_loop():
                         "1. LOCATION: Sujal is CURRENTLY LIVING IN KATHMANDU, NEPAL. He returned from Dubai after his college visa issue. He is studying at IIMS College Kathmandu. NEVER say you are in Dubai.\n"
                         "2. FORMATTING: NEVER prefix your reply with names, phone numbers, or brackets like [Sujal]: or [239783913721864]:. Output ONLY the raw conversational message.\n"
                         "3. UNKNOWN QUESTIONS: If someone asks a question you don't know the answer to (e.g. about someone's status or news), do NOT hallucinate or make up random stories! Ask them casually or give a neutral Sujal-style response (e.g. 'khai thaha vayena dost', 'k vanya bujhena').\n"
+                        "4. LANGUAGE CLEANLINESS & THOUGHTFUL PACING: NEVER use vulgar swear words (like 'muji', 'randi', 'machikne', etc.) under normal circumstances. In group chats and audio notes, zero rough words are permitted. Always think carefully and reply slowly without rushing into blind answers.\n"
                         "</CURRENT_REALITY_OVERRIDE>"
                     )
 
@@ -114,6 +115,7 @@ async def pending_messages_loop():
                             "1. STRICT SILENCE: DO NOT reply unnecessarily! You MUST output exactly `SKIP` until and unless someone is explicitly calling, naming, or tagging Sujal (e.g., mentioning 'Sujal', 'Diode', 'Mainali', or asking him directly by name).\n"
                             "2. NO GENERAL REPLIES: If someone sends a general file, instructions, or speaks to others (e.g., 'yo pdf check garidinu sir', 'design ko kam', 'good morning'), DO NOT jump in! You MUST output exactly: SKIP\n"
                             "3. ZERO TOLERANCE FOR EMBARRASSING REPLIES: Sujal gets embarrassed and has to delete ('unsent') unnecessary AI replies. When in doubt, remain silent by outputting exactly: SKIP\n"
+                            "4. ZERO ROUGH WORDS / VULGARITY: NEVER use swear words or rough slang ('muji', 'randi', 'machikne', etc.) in group chats! Keep your reply clean, smart, polite, and respectful.\n"
                             "</GROUP_SILENCE_MANDATE>"
                         )
 
@@ -149,6 +151,7 @@ async def pending_messages_loop():
                         reply = cleaned.strip()
 
                     reply = clean_whatsapp_formatting(reply)
+                    reply = enforce_clean_language(reply, group_type, is_audio=has_media)
 
                     # 4. Long-term memory extraction
                     extract_and_store_facts(chat_jid, raw_reply)
@@ -170,6 +173,14 @@ async def pending_messages_loop():
                         
                         if voice_match:
                             voice_text = voice_match.group(1).strip()
+                            voice_text = enforce_clean_language(voice_text, group_type, is_audio=True)
+                            
+                            # Extra deliberate reading/thinking pause before recording in groups or audio
+                            if group_type != "private" or has_media:
+                                delib_pause = random.uniform(2.0, 4.0)
+                                print(f"[deliberate pause...] {delib_pause:.1f}s before recording voice note")
+                                await asyncio.sleep(delib_pause)
+                                
                             print(f"[recording...] {chat_jid}")
                             send_presence(chat_jid, "recording")
                             
@@ -189,6 +200,13 @@ async def pending_messages_loop():
                             # Standard Text Message — dynamic human pacing (~0.07s per char + slight jitter)
                             typing_delay = max(1.5, min(len(reply) / 14.0, 8.0)) + random.uniform(-0.2, 0.4)
                             
+                            if group_type != "private" or has_media:
+                                # Extra deliberate reading/thinking time before typing in groups or when responding to audio
+                                delib_pause = random.uniform(2.5, 4.5)
+                                print(f"[deliberate reading pause...] {delib_pause:.1f}s before typing in group/audio")
+                                await asyncio.sleep(delib_pause)
+                                typing_delay += random.uniform(1.0, 2.0)  # Type slower and more carefully in groups/audio
+                                
                             print(f"[typing...] {chat_jid} for {typing_delay:.1f}s")
                             send_presence(chat_jid, "typing")
                             await asyncio.sleep(max(1.0, typing_delay))
