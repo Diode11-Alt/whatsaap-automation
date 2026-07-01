@@ -60,6 +60,9 @@ def keyword_search_fallback(chat_jid: str, text: str, top_k: int = SEMANTIC_TOP_
 
 def get_context_for_reply(chat_jid: str, incoming_text: str) -> str:
     """Semantic search first; on any embedding API failure, fall back to keyword search."""
+    if len(incoming_text.strip()) < 12 or len(incoming_text.split()) < 3:
+        return ""
+        
     q_vec = get_embedding(incoming_text, task_type="RETRIEVAL_QUERY")
     
     results = []

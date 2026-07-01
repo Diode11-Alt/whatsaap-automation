@@ -44,6 +44,9 @@ def store_direct_fact(chat_jid: str, fact: str):
 
 def get_learned_context(chat_jid: str, incoming_text: str) -> str:
     """Semantic search against learned_facts across chat, GLOBAL, and Command Center."""
+    if len(incoming_text.strip()) < 12 or len(incoming_text.split()) < 3:
+        return ""
+        
     q_vec = get_embedding(incoming_text, task_type="RETRIEVAL_QUERY")
     if not q_vec:
         return ""
