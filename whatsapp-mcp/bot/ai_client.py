@@ -50,12 +50,17 @@ def clean_whatsapp_formatting(text: str) -> str:
     return text.strip()
 
 def enforce_clean_language(text: str, group_type: str, is_audio: bool = False) -> str:
-    """Enforce zero vulgarity in group chats and audio voice notes."""
+    """Enforce zero vulgarity in group chats/audio and prevent confidential data leaks universally."""
     if not text:
         return ""
-    # In groups or audio voice notes, strictly scrub out vulgar/rough slang
+    import re
+    # 1. Universal Confidentiality Scrubber: block any 14+ digit numbers or passport patterns
+    if re.search(r'\b\d{14,20}\b', text) or re.search(r'\bBA\d{6,8}\b', text, flags=re.IGNORECASE):
+        print(f"[SECURITY BLOCKED] Prevented confidential number/ID leak in reply: {text!r}")
+        return "tyo ta private kura ho ta ma sanga xaina dost"
+        
+    # 2. In groups or audio voice notes, strictly scrub out vulgar/rough slang
     if group_type != "private" or is_audio or "<voice>" in text.lower():
-        import re
         # Replace common rough Nepali/English slang with friendly clean terms
         text = re.sub(r'\bmu[jg]i\b', 'dost', text, flags=re.IGNORECASE)
         text = re.sub(r'\brandi\b', 'bro', text, flags=re.IGNORECASE)
