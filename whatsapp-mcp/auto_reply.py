@@ -170,8 +170,9 @@ async def pending_messages_loop():
                         
                         # Check for Voice Note tag
                         voice_match = re.search(r'<voice>(.*?)</voice>', reply, re.DOTALL | re.IGNORECASE)
+                        asked_for_voice = any(w in content.lower() for w in ('voice', 'audio', 'bol', 'bolna', 'bolera', 'record'))
                         
-                        if voice_match:
+                        if voice_match and (has_media or asked_for_voice):
                             voice_text = voice_match.group(1).strip()
                             voice_text = enforce_clean_language(voice_text, group_type, is_audio=True)
                             
@@ -197,6 +198,10 @@ async def pending_messages_loop():
                                 
                             send_presence(chat_jid, "paused")
                         else:
+                            if voice_match:
+                                # Strip voice tags and send as normal text because user didn't send audio or ask for voice!
+                                reply = voice_match.group(1).strip()
+                                print(f"[voice blocked -> converted to text] User didn't send audio/ask for voice.")
                             # Standard Text Message — dynamic human pacing (~0.07s per char + slight jitter)
                             typing_delay = max(1.5, min(len(reply) / 14.0, 8.0)) + random.uniform(-0.2, 0.4)
                             
