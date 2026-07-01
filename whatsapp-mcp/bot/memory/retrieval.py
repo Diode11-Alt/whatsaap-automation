@@ -30,17 +30,25 @@ def keyword_search_fallback(chat_jid: str, text: str, top_k: int = SEMANTIC_TOP_
     cursor = conn.cursor()
     
     query_parts = []
-    params = [chat_jid]
     for kw in keywords[:3]:
         query_parts.append("content LIKE ?")
-        params.append(f"%{kw}%")
         
-    query = f"""
-        SELECT content FROM messages 
-        WHERE (chat_jid = ? OR chat_jid = '120363390805827846@g.us') AND ({' OR '.join(query_parts)})
-        ORDER BY timestamp DESC
-        LIMIT {top_k * 2}
-    """
+    if chat_jid == "GLOBAL":
+        query = f"""
+            SELECT content FROM messages 
+            WHERE ({' OR '.join(query_parts)})
+            ORDER BY timestamp DESC
+            LIMIT {top_k * 2}
+        """
+        params = [f"%{kw}%" for kw in keywords[:3]]
+    else:
+        query = f"""
+            SELECT content FROM messages 
+            WHERE (chat_jid = ? OR chat_jid = '120363390805827846@g.us') AND ({' OR '.join(query_parts)})
+            ORDER BY timestamp DESC
+            LIMIT {top_k * 2}
+        """
+        params = [chat_jid] + [f"%{kw}%" for kw in keywords[:3]]
     try:
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -59,7 +67,10 @@ def get_context_for_reply(chat_jid: str, incoming_text: str) -> str:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT content, embedding FROM message_embeddings WHERE chat_jid IN (?, '120363390805827846@g.us')", (chat_jid,))
+        if chat_jid == "GLOBAL":
+            cursor.execute("SELECT content, embedding FROM message_embeddings")
+        else:
+            cursor.execute("SELECT content, embedding FROM message_embeddings WHERE chat_jid IN (?, '120363390805827846@g.us')", (chat_jid,))
         rows = cursor.fetchall()
         conn.close()
         

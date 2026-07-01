@@ -51,11 +51,14 @@ def get_learned_context(chat_jid: str, incoming_text: str) -> str:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, fact_text, embedding FROM learned_facts 
-        WHERE chat_jid IN (?, 'GLOBAL', 'all_data', '120363390805827846@g.us')
-        ORDER BY id DESC
-    """, (chat_jid,))
+    if chat_jid == "GLOBAL":
+        cursor.execute("SELECT id, fact_text, embedding FROM learned_facts ORDER BY id DESC")
+    else:
+        cursor.execute("""
+            SELECT id, fact_text, embedding FROM learned_facts 
+            WHERE chat_jid IN (?, 'GLOBAL', 'all_data', '120363390805827846@g.us')
+            ORDER BY id DESC
+        """, (chat_jid,))
     rows = cursor.fetchall()
     conn.close()
     

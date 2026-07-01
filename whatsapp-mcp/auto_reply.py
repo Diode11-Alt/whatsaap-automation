@@ -106,6 +106,16 @@ async def pending_messages_loop():
                         "</CURRENT_REALITY_OVERRIDE>"
                     )
 
+                    if '@g.us' in chat_jid and chat_jid != all_data_jid:
+                        system_prompt += (
+                            "\n\n<GROUP_SILENCE_MANDATE>\n"
+                            "CRITICAL MANDATE FROM SUJAL FOR ALL GROUP CHATS:\n"
+                            "1. STRICT SILENCE: DO NOT reply unnecessarily! You MUST output exactly `SKIP` until and unless someone is explicitly calling, naming, or tagging Sujal (e.g., mentioning 'Sujal', 'Diode', 'Mainali', or asking him directly by name).\n"
+                            "2. NO GENERAL REPLIES: If someone sends a general file, instructions, or speaks to others (e.g., 'yo pdf check garidinu sir', 'design ko kam', 'good morning'), DO NOT jump in! You MUST output exactly: SKIP\n"
+                            "3. ZERO TOLERANCE FOR EMBARRASSING REPLIES: Sujal gets embarrassed and has to delete ('unsent') unnecessary AI replies. When in doubt, remain silent by outputting exactly: SKIP\n"
+                            "</GROUP_SILENCE_MANDATE>"
+                        )
+
                     # 2. Get AI Reply
                     chat_history = get_chat_history(chat_jid, limit=15)
                     
@@ -281,15 +291,55 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                 f.write(f"AI Reply: {final_reply}\n\n")
             return {"status": "ok"}
         elif chat_jid == all_data_jid:
-            # If it's not a recognized command, store it directly into long-term memory facts ONLY if in all_data
-            store_direct_fact("GLOBAL", content.strip())
-            store_direct_fact(all_data_jid, content.strip())
-            send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"=== {current_time} | Chat: {chat_jid} (Memo) ===\n")
-                f.write(f"User: {content}\n")
-                f.write(f"AI Reply: 🤖 Memo saved to long-term memory.\n\n")
-            return {"status": "ok"}
+            txt_lower = content.strip().lower()
+            query_starters = ('what ', 'who ', 'where ', 'when ', 'why ', 'how ', 'did ', 'is ', 'are ', 'can ', 'could ', 'would ', 'tell ', 'show ', 'list ', 'check ', 'summarize ', 'summary ', 'explain ', 'give me ', 'anyone ', 'has ', 'do we ', 'have ', 'any ')
+            is_query = content.strip().endswith('?') or any(txt_lower.startswith(q) for q in query_starters) or 'status' in txt_lower
+            
+            if is_query:
+                print(f"[Chief of Staff] Query detected in all_data: {content!r}")
+                from bot.state import generate_executive_briefing
+                from bot.memory.retrieval import get_context_for_reply
+                from bot.memory.facts_store import get_learned_context
+                
+                rag_context = get_context_for_reply("GLOBAL", content)
+                learned_context = get_learned_context("GLOBAL", content)
+                briefing = generate_executive_briefing(bot_state, CONTACT_MEMORY)
+                
+                cos_prompt = (
+                    "You are acting as Sujal's Personal AI Chief of Staff and Executive Assistant inside his private WhatsApp Command Center ('All data').\n"
+                    "Sujal (your boss) is asking you a question or requesting information about his system, contacts, or learned memories.\n"
+                    "Use the retrieved RAG memory context, learned facts, and system briefing below to answer him accurately, concisely, and obediently.\n"
+                    "Start your response with '🤖 ' or 'Huss boss, '.\n\n"
+                    f"<system_briefing>\n{briefing}\n</system_briefing>\n"
+                )
+                if rag_context: cos_prompt += f"\n{rag_context}\n"
+                if learned_context: cos_prompt += f"\n{learned_context}\n"
+                
+                cos_reply = get_ai_reply(cos_prompt, [], content, has_media=False)
+                if cos_reply:
+                    clean_reply = re.sub(r'<thought>.*?</thought>', '', cos_reply, flags=re.DOTALL)
+                    clean_reply = re.sub(r'<reply>(.*?)</reply>', r'\1', clean_reply, flags=re.DOTALL).strip()
+                    if not clean_reply.startswith("🤖") and not clean_reply.lower().startswith("huss"):
+                        clean_reply = f"🤖 {clean_reply}"
+                else:
+                    clean_reply = "🤖 I searched your database but couldn't generate a reply right now, boss."
+                    
+                send_whatsapp_message(chat_jid, clean_reply)
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"=== {current_time} | Chat: {chat_jid} (Chief of Staff Q&A) ===\n")
+                    f.write(f"User: {content}\n")
+                    f.write(f"AI Reply: {clean_reply}\n\n")
+                return {"status": "ok"}
+            else:
+                # If it's not a query, store it directly into long-term memory facts
+                store_direct_fact("GLOBAL", content.strip())
+                store_direct_fact(all_data_jid, content.strip())
+                send_whatsapp_message(chat_jid, f"🤖 Memo saved to long-term memory: '{content.strip()}'")
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write(f"=== {current_time} | Chat: {chat_jid} (Memo) ===\n")
+                    f.write(f"User: {content}\n")
+                    f.write(f"AI Reply: 🤖 Memo saved to long-term memory: '{content.strip()}'\n\n")
+                return {"status": "ok"}
         # If it's an alt DM and not a command, we intentionally fall through to let the AI chat naturally
         
     if is_from_me:
@@ -318,8 +368,16 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
     muted_jids = bot_state.get('muted_jids', [])
     if chat_jid in muted_jids:
-        replied_ids.add(msg_id)
-        return {"status": "ignored"}
+        # Check if temporal mute has expired
+        muted_until = bot_state.get('muted_until', {})
+        if chat_jid in muted_until and time.time() > muted_until[chat_jid]:
+            print(f"[unmute] Temporal mute for {chat_jid} expired. Unmuting automatically.")
+            bot_state['muted_jids'].remove(chat_jid)
+            del bot_state['muted_until'][chat_jid]
+            save_bot_state(bot_state)
+        else:
+            replied_ids.add(msg_id)
+            return {"status": "ignored"}
         
     if msg_id in replied_ids:
         return {"status": "ignored"}
