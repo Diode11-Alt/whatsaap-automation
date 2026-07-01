@@ -170,7 +170,7 @@ async def pending_messages_loop():
                         
                         # Check for Voice Note tag
                         voice_match = re.search(r'<voice>(.*?)</voice>', reply, re.DOTALL | re.IGNORECASE)
-                        asked_for_voice = any(w in content.lower() for w in ('voice', 'audio', 'bol', 'bolna', 'bolera', 'record'))
+                        asked_for_voice = any(w in final_payload.lower() for w in ('voice', 'audio', 'bol', 'bolna', 'bolera', 'record'))
                         
                         if voice_match and (has_media or asked_for_voice):
                             voice_text = voice_match.group(1).strip()
