@@ -67,7 +67,10 @@ async def pending_messages_loop():
                             seen.add(fingerprint)
                             unique_msgs.append(m)
                     
-                    combined_text = "\n".join(f"[{m['sender']}]: {m['content']}" for m in unique_msgs if m['content'])
+                    if group_type == "PERSONAL":
+                        combined_text = "\n".join(m['content'] for m in unique_msgs if m['content'])
+                    else:
+                        combined_text = "\n".join(f"[{m['sender'].split('@')[0]}]: {m['content']}" for m in unique_msgs if m['content'])
                     has_media = any(m['media_type'] for m in unique_msgs)
                     media_notes = "\n".join(f"[Sent {m['media_type']}: {m['filename']}]" for m in unique_msgs if m['media_type'])
                     
@@ -93,6 +96,15 @@ async def pending_messages_loop():
                         system_prompt += learned_context
                     if static_knowledge:
                         system_prompt += f"\n\n<knowledge_base>\n{static_knowledge}\n</knowledge_base>"
+
+                    system_prompt += (
+                        "\n\n<CURRENT_REALITY_OVERRIDE>\n"
+                        "CRITICAL FACTS ABOUT SUJAL (ALWAYS OBEY THESE OVER ANY OLD MEMORY):\n"
+                        "1. LOCATION: Sujal is CURRENTLY LIVING IN KATHMANDU, NEPAL. He returned from Dubai after his college visa issue. He is studying at IIMS College Kathmandu. NEVER say you are in Dubai.\n"
+                        "2. FORMATTING: NEVER prefix your reply with names, phone numbers, or brackets like [Sujal]: or [239783913721864]:. Output ONLY the raw conversational message.\n"
+                        "3. UNKNOWN QUESTIONS: If someone asks a question you don't know the answer to (e.g. about someone's status or news), do NOT hallucinate or make up random stories! Ask them casually or give a neutral Sujal-style response (e.g. 'khai thaha vayena dost', 'k vanya bujhena').\n"
+                        "</CURRENT_REALITY_OVERRIDE>"
+                    )
 
                     # 2. Get AI Reply
                     chat_history = get_chat_history(chat_jid, limit=15)
