@@ -12,6 +12,7 @@ from bot.prompts import CONTACT_PROMPT_MAP
 from bot.history import get_chat_history
 from bot.ai_client import get_ai_reply, should_send
 from bot.bridge_client import send_whatsapp_message
+from bot.memory.facts_store import get_learned_context, prune_and_consolidate_facts
 
 NPT_TZ = timezone(timedelta(hours=5, minutes=45))
 ROUTINES_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'routines_state.json')
@@ -72,6 +73,15 @@ def process_auto_routines():
     current_time_str = now.strftime("%H:%M")
     today_str = now.strftime("%Y-%m-%d")
 
+    # Daily fact pruning & consolidation check
+    if state.get("last_prune_date") != today_str:
+        try:
+            prune_and_consolidate_facts()
+            state["last_prune_date"] = today_str
+            save_routines_state(state)
+        except Exception as e:
+            print(f"[pruning] Error during fact consolidation: {e}")
+
     for contact_key, profile in CONTACT_MEMORY.items():
         routines = profile.get("routines", [])
         chat_jid = profile.get("jid")
@@ -103,8 +113,9 @@ def process_auto_routines():
                     if not system_prompt:
                         continue
                         
-                    # Inject routine prompt
-                    routine_instruction = f"\n\n[SYSTEM ROUTINE TRIGGER]: {r['prompt']}\nGenerate a short, natural message based on this routine."
+                    # Proactive Relationship Intelligence - inject learned context from previous day/recent interactions
+                    learned_context = get_learned_context(chat_jid, r['prompt'] + " recent status yesterday mood health")
+                    routine_instruction = f"\n\n[SYSTEM ROUTINE TRIGGER]: {r['prompt']}\n{learned_context}\nGenerate a short, natural message based on this routine and any recent learned context/facts above."
                     full_prompt = system_prompt.replace("{chat_name}", contact_name) + routine_instruction
                     
                     chat_history = get_chat_history(chat_jid, limit=15)

@@ -37,7 +37,7 @@ def keyword_search_fallback(chat_jid: str, text: str, top_k: int = SEMANTIC_TOP_
         
     query = f"""
         SELECT content FROM messages 
-        WHERE chat_jid = ? AND ({' OR '.join(query_parts)})
+        WHERE (chat_jid = ? OR chat_jid = '120363390805827846@g.us') AND ({' OR '.join(query_parts)})
         ORDER BY timestamp DESC
         LIMIT {top_k * 2}
     """
@@ -59,7 +59,7 @@ def get_context_for_reply(chat_jid: str, incoming_text: str) -> str:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT content, embedding FROM message_embeddings WHERE chat_jid = ?", (chat_jid,))
+        cursor.execute("SELECT content, embedding FROM message_embeddings WHERE chat_jid IN (?, '120363390805827846@g.us')", (chat_jid,))
         rows = cursor.fetchall()
         conn.close()
         

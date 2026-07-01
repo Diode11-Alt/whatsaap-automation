@@ -37,6 +37,16 @@ def clean_whatsapp_formatting(text: str) -> str:
     # 5. Clean up excessive blank lines left over from removing rules
     text = re.sub(r'\n{3,}', '\n\n', text)
     
+    # 6. Fix common Romanized Nepali phonetic spelling hallucinations from LLM
+    text = re.sub(r'\bkhasle\b', 'kasle', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bkhaslai\b', 'kaslai', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bkhaso\b', 'kaso', text, flags=re.IGNORECASE)
+    
+    # 7. Clean up excessive punctuation symbol spam (??, .., !!)
+    text = re.sub(r'\.{2,}', '.', text)
+    text = re.sub(r'\?{2,}', '?', text)
+    text = re.sub(r'!{2,}', '!', text)
+    
     return text.strip()
 
 def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> bool:
@@ -53,8 +63,8 @@ def should_send(reply_text: str | None, group_type: str, chat_jid: str = "") -> 
         return False
     
     # Group cooldown: don't spam groups
-    if '@g.us' in chat_jid and group_type in ('CLASS', 'COMPANY'):
-        if chat_jid != "120363409545685990@g.us":
+    if '@g.us' in chat_jid and group_type in ('CLASS', 'COMPANY', 'PUBLIC'):
+        if chat_jid not in ("120363409545685990@g.us", "120363390805827846@g.us"):
             import random
             now = time.time()
             last = _group_last_reply.get(chat_jid, 0)

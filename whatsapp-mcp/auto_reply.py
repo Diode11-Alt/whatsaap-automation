@@ -90,12 +90,12 @@ async def pending_messages_loop():
                     learned_context = get_learned_context(chat_jid, final_payload)
                     static_knowledge = load_knowledge()
 
+                    if static_knowledge:
+                        system_prompt += f"\n\n<knowledge_base>\n{static_knowledge}\n</knowledge_base>"
                     if rag_context:
                         system_prompt += rag_context
                     if learned_context:
                         system_prompt += learned_context
-                    if static_knowledge:
-                        system_prompt += f"\n\n<knowledge_base>\n{static_knowledge}\n</knowledge_base>"
 
                     system_prompt += (
                         "\n\n<CURRENT_REALITY_OVERRIDE>\n"
@@ -134,6 +134,7 @@ async def pending_messages_loop():
                     else:
                         cleaned = re.sub(r'<thought>.*?</thought>', '', raw_reply, flags=re.DOTALL)
                         cleaned = re.sub(r'<remember>.*?</remember>', '', cleaned, flags=re.DOTALL)
+                        cleaned = re.sub(r'<remember_global>.*?</remember_global>', '', cleaned, flags=re.DOTALL)
                         reply = cleaned.strip()
 
                     reply = clean_whatsapp_formatting(reply)
@@ -235,8 +236,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     sender     = msg.get('sender', '')
     filename   = msg.get('filename', '')
 
-    # Background task to embed ALL incoming messages for Vector Search
-    if content:
+    # Background task to embed text messages immediately for Vector Search
+    if content and not media_type:
         background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
 
     # ── Parse commands from Sujal's own messages in "All data" or his Alt DMs ──
@@ -281,6 +282,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ok"}
         elif chat_jid == all_data_jid:
             # If it's not a recognized command, store it directly into long-term memory facts ONLY if in all_data
+            store_direct_fact("GLOBAL", content.strip())
             store_direct_fact(all_data_jid, content.strip())
             send_whatsapp_message(chat_jid, "🤖 Memo saved to long-term memory.")
             with open(log_file, 'a', encoding='utf-8') as f:
@@ -336,8 +338,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     group_type = group_info["type"]
     chat_name = group_info["name"] or chat_jid.split('@')[0]
 
-    # ── PUBLIC or All-Group Mute ────────────────────────────────
-    if group_type == "PUBLIC" or (bot_state.get('mute_all_groups', False) and '@g.us' in chat_jid):
+    # ── All-Group Mute check ────────────────────────────────
+    if bot_state.get('mute_all_groups', False) and '@g.us' in chat_jid:
         replied_ids.add(msg_id)
         return {"status": "ignored"}
 
@@ -377,13 +379,22 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     elif media_type == 'image':
         print(f"[image] Downloading image {msg_id} for vision processing...")
         local_path = download_media(msg_id, chat_jid)
+        caption = content.strip() if content else ""
         if local_path:
             local_image_path = local_path
-            content = "[User sent an image. Process it using the provided vision input]"
+            content = f"[User sent an image: {caption}. Process it using the provided vision input]" if caption else "[User sent an image. Process it using the provided vision input]"
+            # Multi-modal RAG indexing in background
+            from bot.media import index_image_memory
+            background_tasks.add_task(index_image_memory, chat_jid, msg_id, local_path, caption)
         else:
-            content = "[User sent an image, but it failed to download]"
+            content = f"[User sent an image: {caption}, but it failed to download]" if caption else "[User sent an image, but it failed to download]"
     elif media_type == 'document':
-        content = f"[User sent a document: {filename}]"
+        caption = content.strip() if content else ""
+        content = f"[User sent a document ({filename}): {caption}]" if caption else f"[User sent a document: {filename}]"
+
+    # Background task to embed processed media messages (transcribed audio, document text) for Vector Search
+    if content and media_type and media_type != 'image': # Images are indexed by index_image_memory
+        background_tasks.add_task(embed_and_store, chat_jid, msg_id, content)
 
     # Add to buffer (pending dictionary)
     if chat_jid not in pending:

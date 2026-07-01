@@ -104,3 +104,23 @@ def process_media(file_path: str, media_type: str) -> list | None:
     except Exception as e:
         print(f"[media process error] {e}")
     return None
+
+def index_image_memory(chat_jid: str, msg_id: str, image_path: str, caption: str = ""):
+    """Multi-Modal Memory Indexing: Analyzes image with vision AI and stores description in RAG vector db."""
+    from bot.vision import encode_image
+    from bot.ai_client import get_ai_reply
+    from bot.memory.retrieval import embed_and_store
+    
+    b64 = encode_image(image_path)
+    if not b64:
+        return
+        
+    prompt = "You are an AI memory indexer. Describe what is visible in this image in 1-2 concise sentences for vector search indexing (e.g. 'Screenshot showing a Python syntax error', 'Photo of Sujal eating dinner at a restaurant', etc.)."
+    desc = get_ai_reply(prompt, [], f"Caption provided by user: {caption}" if caption else "No caption provided", has_media=True, image_base64_list=[b64])
+    
+    if desc:
+        import re
+        desc = re.sub(r'<thought>.*?</thought>', '', desc, flags=re.DOTALL).strip()
+        memory_text = f"[Vision Memory - Image]: {caption} - {desc}" if caption else f"[Vision Memory - Image]: {desc}"
+        embed_and_store(chat_jid, f"{msg_id}_vision", memory_text)
+        print(f"[multi-modal RAG] Indexed image memory for {chat_jid}: {memory_text[:80]}...")
