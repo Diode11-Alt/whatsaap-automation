@@ -56,9 +56,9 @@ MODELS_TEXT = [
     ("openrouter", "openai/gpt-4o-mini"),           # Cheap, smart, fast
     ("openrouter", "anthropic/claude-3.5-haiku"),   # Super fast Anthropic
     ("openrouter", "meta-llama/llama-3.3-70b-instruct"), # Best Llama 3 on OpenRouter
+    ("groq",       "llama-3.3-70b-versatile"),      # Fast free fallback
     ("gemini",     "gemini-2.0-flash"),             # Free fallback (next-gen)
     ("gemini",     "gemini-1.5-flash"),             # Free fallback (legacy)
-    ("groq",       "llama-3.3-70b-versatile"),      # Free fallback
     ("deepseek",   "deepseek-chat"),                # DeepSeek native
     ("openrouter", "anthropic/claude-3.5-sonnet"),  # Premium tier
     ("openrouter", "openai/gpt-4o"),                # Premium tier

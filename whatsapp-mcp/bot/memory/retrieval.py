@@ -25,7 +25,7 @@ def keyword_search_fallback(chat_jid: str, text: str, top_k: int = SEMANTIC_TOP_
     if not keywords:
         return []
     
-    conn = sqlite3.connect(BRIDGE_DB_PATH)
+    conn = sqlite3.connect(BRIDGE_DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -64,7 +64,7 @@ def get_context_for_reply(chat_jid: str, incoming_text: str) -> str:
     
     results = []
     if q_vec:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=15.0)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         if chat_jid == "GLOBAL":
@@ -103,7 +103,7 @@ def embed_and_store(chat_jid: str, message_id: str, content: str):
     if not vec:
         return
         
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     cursor = conn.cursor()
     try:
         cursor.execute("""

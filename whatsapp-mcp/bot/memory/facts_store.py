@@ -29,7 +29,7 @@ def store_direct_fact(chat_jid: str, fact: str):
     if not vec:
         return
         
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -48,7 +48,7 @@ def get_learned_context(chat_jid: str, incoming_text: str) -> str:
     if not q_vec:
         return ""
         
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     if chat_jid == "GLOBAL":
@@ -87,7 +87,7 @@ def get_learned_context(chat_jid: str, incoming_text: str) -> str:
 
 def prune_and_consolidate_facts():
     """Nightly self-pruning routine: removes duplicate or highly overlapping facts using vector similarity."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT id, chat_jid, fact_text, embedding FROM learned_facts ORDER BY id DESC")

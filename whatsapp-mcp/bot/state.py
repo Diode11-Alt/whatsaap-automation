@@ -138,7 +138,7 @@ def generate_executive_briefing(state: dict, contact_memory: dict) -> str:
     # 4. New Facts Learned Today / Recently
     try:
         bot_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bot_memory.db')
-        conn = sqlite3.connect(bot_db_path)
+        conn = sqlite3.connect(bot_db_path, timeout=15.0)
         cursor = conn.cursor()
         cursor.execute("SELECT fact_text FROM learned_facts ORDER BY id DESC LIMIT 5")
         rows = cursor.fetchall()
@@ -176,7 +176,7 @@ def get_chief_of_staff_context(query: str, contact_memory: dict) -> str:
                 target_names.append(prof.get('nickname', key))
                 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=15.0)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -218,7 +218,7 @@ def get_chief_of_staff_context(query: str, contact_memory: dict) -> str:
     # 3. Keyword query against learned_facts in bot_memory.db
     try:
         bot_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bot_memory.db')
-        conn2 = sqlite3.connect(bot_db)
+        conn2 = sqlite3.connect(bot_db, timeout=15.0)
         cursor2 = conn2.cursor()
         
         # Extract meaningful keywords from query (>3 chars)

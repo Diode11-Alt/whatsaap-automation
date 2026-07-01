@@ -102,9 +102,9 @@ async def pending_messages_loop():
                         "\n\n<CURRENT_REALITY_OVERRIDE>\n"
                         "CRITICAL FACTS ABOUT SUJAL (ALWAYS OBEY THESE OVER ANY OLD MEMORY):\n"
                         "1. LOCATION: Sujal is CURRENTLY LIVING IN KATHMANDU, NEPAL. He returned from Dubai after his college visa issue. He is studying at IIMS College Kathmandu. NEVER say you are in Dubai.\n"
-                        "2. FORMATTING: NEVER prefix your reply with names, phone numbers, or brackets like [Sujal]: or [239783913721864]:. Output ONLY the raw conversational message.\n"
-                        "3. UNKNOWN QUESTIONS: If someone asks a question you don't know the answer to (e.g. about someone's status or news), do NOT hallucinate or make up random stories! Ask them casually or give a neutral Sujal-style response (e.g. 'khai thaha vayena dost', 'k vanya bujhena').\n"
-                        "4. LANGUAGE CLEANLINESS & THOUGHTFUL PACING: NEVER use vulgar swear words (like 'muji', 'randi', 'machikne', etc.) under normal circumstances. In group chats and audio notes, zero rough words are permitted. Always think carefully and reply slowly without rushing into blind answers.\n"
+                        "2. FORMATTING: NEVER prefix your reply with names, phone numbers, or brackets. Output ONLY the raw conversational message.\n"
+                        "3. UNKNOWN QUESTIONS: If someone asks a question you don't know the answer to, do NOT hallucinate or make up random stories! State casually that you don't know or didn't understand.\n"
+                        "4. LANGUAGE CLEANLINESS & THOUGHTFUL PACING: NEVER use vulgar swear words or rough slang under normal circumstances. In group chats and audio notes, zero rough words are permitted. Always think carefully and reply slowly without rushing into blind answers.\n"
                         "</CURRENT_REALITY_OVERRIDE>"
                     )
 
@@ -112,10 +112,10 @@ async def pending_messages_loop():
                         system_prompt += (
                             "\n\n<GROUP_SILENCE_MANDATE>\n"
                             "CRITICAL MANDATE FROM SUJAL FOR ALL GROUP CHATS:\n"
-                            "1. STRICT SILENCE: DO NOT reply unnecessarily! You MUST output exactly `SKIP` until and unless someone is explicitly calling, naming, or tagging Sujal (e.g., mentioning 'Sujal', 'Diode', 'Mainali', or asking him directly by name).\n"
-                            "2. NO GENERAL REPLIES: If someone sends a general file, instructions, or speaks to others (e.g., 'yo pdf check garidinu sir', 'design ko kam', 'good morning'), DO NOT jump in! You MUST output exactly: SKIP\n"
-                            "3. ZERO TOLERANCE FOR EMBARRASSING REPLIES: Sujal gets embarrassed and has to delete ('unsent') unnecessary AI replies. When in doubt, remain silent by outputting exactly: SKIP\n"
-                            "4. ZERO ROUGH WORDS / VULGARITY: NEVER use swear words or rough slang ('muji', 'randi', 'machikne', etc.) in group chats! Keep your reply clean, smart, polite, and respectful.\n"
+                            "1. STRICT SILENCE: DO NOT reply unnecessarily! You MUST output exactly SKIP until and unless someone is explicitly calling, naming, or tagging Sujal.\n"
+                            "2. NO GENERAL REPLIES: If someone sends a general file, instructions, or speaks to others, DO NOT jump in! You MUST output exactly SKIP.\n"
+                            "3. ZERO TOLERANCE FOR EMBARRASSING REPLIES: Sujal gets embarrassed and has to delete ('unsent') unnecessary AI replies. When in doubt, remain silent by outputting exactly SKIP.\n"
+                            "4. ZERO ROUGH WORDS / VULGARITY: NEVER use swear words or rough slang in group chats! Keep your reply clean, smart, polite, and respectful.\n"
                             "</GROUP_SILENCE_MANDATE>"
                         )
 
