@@ -311,25 +311,28 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ok"}
         elif chat_jid == all_data_jid:
             txt_lower = content.strip().lower()
-            query_starters = ('what ', 'who ', 'where ', 'when ', 'why ', 'how ', 'did ', 'is ', 'are ', 'can ', 'could ', 'would ', 'tell ', 'show ', 'list ', 'check ', 'summarize ', 'summary ', 'explain ', 'give me ', 'anyone ', 'has ', 'do we ', 'have ', 'any ')
-            is_query = content.strip().endswith('?') or any(txt_lower.startswith(q) for q in query_starters) or 'status' in txt_lower
+            query_starters = ('what ', 'who ', 'where ', 'when ', 'why ', 'how ', 'did ', 'is ', 'are ', 'can ', 'could ', 'would ', 'tell ', 'show ', 'list ', 'check ', 'summarize ', 'summary ', 'explain ', 'give ', 'anyone ', 'has ', 'do ', 'have ', 'any ', 'whose ', 'which ', 'status', 'k ', ' k ', 'kata ', 'kaile ', 'kina ', 'ko ', 'kasle ', 'kasko ', 'kaslai ', 'kasto ', 'kati ', 'kaha ', 'khai ', 'xa ', 'xau ', 'thaha ', 'schedule ', 'kura ')
+            is_memo_cmd = txt_lower.startswith(('note:', 'remember:', 'memo:', 'save:', 'add:', 'fact:', 'remember that '))
+            is_query = not is_memo_cmd and (content.strip().endswith('?') or any(txt_lower.startswith(q) or f" {q}" in txt_lower for q in query_starters) or 'status' in txt_lower or 'summary' in txt_lower or 'text' in txt_lower or 'message' in txt_lower or any(k.lower() in txt_lower for k in CONTACT_MEMORY.keys()))
             
             if is_query:
                 print(f"[Chief of Staff] Query detected in all_data: {content!r}")
-                from bot.state import generate_executive_briefing
+                from bot.state import generate_executive_briefing, get_chief_of_staff_context
                 from bot.memory.retrieval import get_context_for_reply
                 from bot.memory.facts_store import get_learned_context
                 
                 rag_context = get_context_for_reply("GLOBAL", content)
                 learned_context = get_learned_context("GLOBAL", content)
                 briefing = generate_executive_briefing(bot_state, CONTACT_MEMORY)
+                cos_intel = get_chief_of_staff_context(content, CONTACT_MEMORY)
                 
                 cos_prompt = (
                     "You are acting as Sujal's Personal AI Chief of Staff and Executive Assistant inside his private WhatsApp Command Center ('All data').\n"
                     "Sujal (your boss) is asking you a question or requesting information about his system, contacts, or learned memories.\n"
-                    "Use the retrieved RAG memory context, learned facts, and system briefing below to answer him accurately, concisely, and obediently.\n"
+                    "Use the retrieved SQL messages, RAG memory context, learned facts, and system briefing below to answer him accurately, concisely, and obediently.\n"
                     "Start your response with '🤖 ' or 'Huss boss, '.\n\n"
-                    f"<system_briefing>\n{briefing}\n</system_briefing>\n"
+                    f"<system_briefing>\n{briefing}\n</system_briefing>\n\n"
+                    f"<chief_of_staff_intel>\n{cos_intel}\n</chief_of_staff_intel>\n"
                 )
                 if rag_context: cos_prompt += f"\n{rag_context}\n"
                 if learned_context: cos_prompt += f"\n{learned_context}\n"

@@ -124,4 +124,43 @@ def prune_and_consolidate_facts():
         cursor.executemany("DELETE FROM learned_facts WHERE id = ?", [(fid,) for fid in to_delete])
         conn.commit()
         print(f"[pruning] Removed {len(to_delete)} duplicate/outdated learned facts.")
+        
+    # Phase 2: LLM-based Fact Consolidation (review rows per jid, merge duplicates, delete outdated temporary statuses)
+    for jid, facts in by_jid.items():
+        remaining_facts = [f for f in facts if f["id"] not in to_delete]
+        if len(remaining_facts) >= 4:
+            try:
+                from bot.ai_client import get_ai_reply
+                fact_lines = [f"- {f['fact_text']}" for f in remaining_facts]
+                prompt = (
+                    f"You are an AI memory manager for contact/chat {jid}.\n"
+                    "Below is the current list of learned facts stored in long-term memory:\n"
+                    + "\n".join(fact_lines) + "\n\n"
+                    "Your task:\n"
+                    "1. Remove any outdated temporary statuses (like past travel dates, headaches from last week, temporary moods that are no longer relevant).\n"
+                    "2. Merge duplicate or overlapping facts into concise, permanent facts.\n"
+                    "3. Keep important permanent facts (e.g. relationship rules, preferences, nicknames, important background).\n"
+                    "4. Return the clean, consolidated list of permanent facts as JSON: a list of strings [\"fact 1\", \"fact 2\", ...].\n"
+                    "ONLY output the JSON array of strings, nothing else."
+                )
+                ai_res = get_ai_reply(prompt, [], "Consolidate facts.", has_media=False)
+                if ai_res:
+                    clean_json = re.sub(r'<thought>.*?</thought>', '', ai_res, flags=re.DOTALL).strip()
+                    json_match = re.search(r'\[.*\]', clean_json, re.DOTALL)
+                    if json_match:
+                        new_facts_list = json.loads(json_match.group(0))
+                        if isinstance(new_facts_list, list) and 0 < len(new_facts_list) <= len(remaining_facts):
+                            old_ids = [f["id"] for f in remaining_facts]
+                            cursor.executemany("DELETE FROM learned_facts WHERE id = ?", [(fid,) for fid in old_ids])
+                            conn.commit()
+                            for nf in new_facts_list:
+                                if isinstance(nf, str) and len(nf.strip()) >= 5:
+                                    vec = get_embedding(nf.strip(), task_type="FACT_STORAGE")
+                                    if vec:
+                                        cursor.execute("INSERT INTO learned_facts (chat_jid, fact_text, embedding) VALUES (?, ?, ?)", (jid, nf.strip(), json.dumps(vec)))
+                            conn.commit()
+                            print(f"[pruning] LLM consolidated {len(remaining_facts)} facts into {len(new_facts_list)} clean facts for {jid}.")
+            except Exception as e:
+                print(f"[pruning] LLM consolidation failed for {jid}: {e}")
+                
     conn.close()

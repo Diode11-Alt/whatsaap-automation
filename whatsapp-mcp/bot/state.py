@@ -46,7 +46,7 @@ def parse_command(text: str, state: dict, contact_memory: dict) -> tuple[dict, s
             import time
             duration_sec = 0
             duration_str = ""
-            dur_match = re.search(r'for\s+(\d+)\s*(h|hr|hour|hours|m|min|mins|minute|minutes|d|day|days)', t)
+            dur_match = re.search(r'(?:for\s+)?(\d+)\s*(h|hr|hour|hours|m|min|mins|minute|minutes|d|day|days)', t)
             if dur_match:
                 val = int(dur_match.group(1))
                 unit = dur_match.group(2)
@@ -137,7 +137,8 @@ def generate_executive_briefing(state: dict, contact_memory: dict) -> str:
     
     # 4. New Facts Learned Today / Recently
     try:
-        conn = sqlite3.connect(DB_PATH)
+        bot_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bot_memory.db')
+        conn = sqlite3.connect(bot_db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT fact_text FROM learned_facts ORDER BY id DESC LIMIT 5")
         rows = cursor.fetchall()
@@ -152,3 +153,91 @@ def generate_executive_briefing(state: dict, contact_memory: dict) -> str:
         lines.append(f"\n🧠 *Recent Learned Facts*: [Error reading DB: {e}]")
         
     return "\n".join(lines)
+
+def get_chief_of_staff_context(query: str, contact_memory: dict) -> str:
+    """Pull real-time SQL messages, contact history, and learned facts for Chief of Staff Q&A."""
+    import sqlite3
+    import re
+    from bot.config import DB_PATH
+    
+    q_lower = query.lower()
+    lines = []
+    
+    # 1. Check if any specific contact is mentioned
+    target_jids = []
+    target_names = []
+    for key, prof in contact_memory.items():
+        nick = prof.get('nickname', key).lower()
+        real = prof.get('real_name', '').lower()
+        if nick in q_lower or (real and real in q_lower) or key in q_lower:
+            jid = prof.get('jid')
+            if jid and jid not in target_jids:
+                target_jids.append(jid)
+                target_names.append(prof.get('nickname', key))
+                
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # 2. If target contact mentioned, fetch their last 15 messages
+        if target_jids:
+            lines.append(f"📌 *Recent Chat History with {', '.join(target_names)}*:")
+            for jid in target_jids:
+                cursor.execute("""
+                    SELECT sender, content, timestamp, is_from_me FROM messages 
+                    WHERE chat_jid = ? AND content IS NOT NULL AND content != '' 
+                    ORDER BY timestamp DESC LIMIT 15
+                """, (jid,))
+                rows = cursor.fetchall()
+                for r in reversed(rows):
+                    sender_label = "Sujal (You)" if r['is_from_me'] else (r['sender'].split('@')[0] if r['sender'] else "Contact")
+                    lines.append(f"  [{sender_label}]: {r['content']}")
+        else:
+            # Otherwise, fetch last 15 general incoming/outgoing messages across private chats
+            lines.append("📌 *Recent WhatsApp Activity (Last 15 Messages Across All Private Chats)*:")
+            cursor.execute("""
+                SELECT chat_jid, sender, content, timestamp, is_from_me FROM messages 
+                WHERE content IS NOT NULL AND content != '' AND chat_jid NOT LIKE '%@g.us%' 
+                ORDER BY timestamp DESC LIMIT 15
+            """)
+            rows = cursor.fetchall()
+            for r in reversed(rows):
+                c_jid = r['chat_jid']
+                c_name = c_jid.split('@')[0]
+                for k, p in contact_memory.items():
+                    if p.get('jid') == c_jid:
+                        c_name = p.get('nickname', k)
+                        break
+                sender_label = "Sujal" if r['is_from_me'] else c_name
+                lines.append(f"  [{c_name} chat - {sender_label}]: {r['content']}")
+        conn.close()
+    except Exception as e:
+        lines.append(f"📌 *SQL Messages Query Error*: {e}")
+        
+    # 3. Keyword query against learned_facts in bot_memory.db
+    try:
+        bot_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bot_memory.db')
+        conn2 = sqlite3.connect(bot_db)
+        cursor2 = conn2.cursor()
+        
+        # Extract meaningful keywords from query (>3 chars)
+        words = [w for w in re.findall(r'\w+', q_lower) if len(w) > 3 and w not in ('what', 'when', 'where', 'who', 'how', 'why', 'did', 'does', 'that', 'this', 'have', 'from', 'about', 'summary', 'status')]
+        if words:
+            query_conds = " OR ".join(["fact_text LIKE ?" for _ in words])
+            params = [f"%{w}%" for w in words]
+            cursor2.execute(f"SELECT fact_text, created_at FROM learned_facts WHERE {query_conds} ORDER BY id DESC LIMIT 15", params)
+        else:
+            cursor2.execute("SELECT fact_text, created_at FROM learned_facts ORDER BY id DESC LIMIT 15")
+        rows2 = cursor2.fetchall()
+        conn2.close()
+        
+        if rows2:
+            lines.append("\n🧠 *Relevant Learned Facts / Long-term Memories*:")
+            for r in rows2:
+                lines.append(f"  - {r[0]} (recorded: {r[1]})")
+    except Exception as e:
+        lines.append(f"\n🧠 *Facts Query Error*: {e}")
+        
+    return "\n".join(lines)
+

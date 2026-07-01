@@ -114,8 +114,18 @@ def process_auto_routines():
                         continue
                         
                     # Proactive Relationship Intelligence - inject learned context from previous day/recent interactions
-                    learned_context = get_learned_context(chat_jid, r['prompt'] + " recent status yesterday mood health")
-                    routine_instruction = f"\n\n[SYSTEM ROUTINE TRIGGER]: {r['prompt']}\n{learned_context}\nGenerate a short, natural message based on this routine and any recent learned context/facts above."
+                    learned_context = get_learned_context(chat_jid, r['prompt'] + " yesterday last night headache sickness exam travel work schedule mood feeling")
+                    global_context = get_learned_context("GLOBAL", r['prompt'] + f" {contact_name} status yesterday")
+                    intel_block = f"\n<relationship_intelligence>\n{learned_context}\n{global_context}\n</relationship_intelligence>" if (learned_context or global_context) else ""
+                    
+                    routine_instruction = (
+                        f"\n\n[SYSTEM ROUTINE TRIGGER]: {r['prompt']}\n"
+                        f"{intel_block}\n"
+                        "PROACTIVE RELATIONSHIP INTELLIGENCE INSTRUCTIONS:\n"
+                        "1. Check the relationship intelligence and recent chat history above.\n"
+                        "2. If they mentioned anything notable yesterday or recently (e.g. headache, exam, travel, stress, sickness, work), explicitly ask a warm, caring follow-up question about it (e.g., 'Aaja tauko kasto xa?', 'Exam kasto vyo?').\n"
+                        "3. Keep the response natural, conversational, brief, and in your normal casual Nepanglish persona. Do NOT sound like an AI bot."
+                    )
                     full_prompt = system_prompt.replace("{chat_name}", contact_name) + routine_instruction
                     
                     chat_history = get_chat_history(chat_jid, limit=15)
